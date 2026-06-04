@@ -127,10 +127,23 @@ List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportMo
 - `@ExcelRow.cells`：`@ExcelCell[]`，逐格指定内容（`value` 字面量 / `field` 取字段值，二选一）。
 
 ### `@ExcelInfoChild`（字段）
-> ⚠️ **当前未实现**：注解已定义但处理器只收集、未生效，使用它不会拍平子模型列。原意是把嵌套子模型的列拍平进父 Sheet。
+把嵌套子对象的 `@ExcelColumn` 列**拍平**进父 Sheet。子列按各自 `@ExcelColumn.index()` 与父列**统一排序**；导出时通过路径 `父字段名.子字段名` 读取行对象上的嵌套值（即行对象需有 `get父字段().get子字段()`）。子列支持 `columnName/index/translate/日期格式/图片/公式`；级联与方法级下拉/翻译暂不适用于子列。仅导出。
+
+```java
+@ExcelInfo(sheetName = "订单")
+public class OrderModel {
+    @ExcelData private List<OrderRow> data;
+    @ExcelColumn(columnName = "订单号", index = 1) private String orderNo;
+    @ExcelInfoChild private Customer customer;   // Customer 的列被拍平进来
+}
+public class Customer {
+    @ExcelColumn(columnName = "客户名", index = 2) private String name;   // 读 row.getCustomer().getName()
+    @ExcelColumn(columnName = "电话",  index = 3) private String phone;
+}
+```
 
 ### `@ExcelColumnParent`（字段）
-> ⚠️ **当前未实现**：注解已定义但未被任何代码使用。原意是把多个 `@ExcelColumn` 归到一个父字段下形成父列/合并表头。
+> ⚠️ **当前未实现**：注解仅有 `columns()`、缺少父列标题/索引等元数据，且两行合并表头需要较大的渲染改造。暂不要使用。
 
 ### `@ExcelContext`（字段或方法）
 在 Sheet 指定位置注入额外的上下文行。
@@ -487,4 +500,4 @@ ImageDownloadPolicy.setBlockPrivateNetworks(true);   // 应用启动时设置一
 - 流式 `readAsBeans` 按 `@ExcelColumn` **位置**或**表头名**绑定，扩展名缺失的图片 URL 退化为 JPEG。
 - 构建/Javadoc 对**含非 ASCII 字符的工程路径**敏感（已在 pom 用 UTF-8 兜底，仍建议纯英文路径）。
 - 列字段值通过 getter 反射读取（已用 LambdaMetafactory 缓存加速），行对象需提供对应 getter；导入目标类需对应 setter。
-- `@ExcelInfoChild`、`@ExcelColumnParent` 注解**已定义但当前未实现**（不要依赖）。
+- `@ExcelColumnParent` 注解**已定义但当前未实现**（不要依赖）。`@ExcelInfoChild` 仅支持导出方向。

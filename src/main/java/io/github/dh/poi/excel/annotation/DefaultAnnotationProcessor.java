@@ -243,21 +243,60 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
     /**
      * Process column annotations and build column model list.
      */
+    /** One column to render: a declaring {@link ExcelColumn} field, optionally flattened from a child. */
+    private static final class ColumnEntry {
+        final Field field;
+        /** {@code null} for a top-level column; the parent field name when flattened via @ExcelInfoChild. */
+        final String pathPrefix;
+
+        ColumnEntry(Field field, String pathPrefix) {
+            this.field = field;
+            this.pathPrefix = pathPrefix;
+        }
+    }
+
+    /**
+     * Collects all columns: top-level {@code @ExcelColumn} fields plus the {@code @ExcelColumn}
+     * fields of every {@code @ExcelInfoChild} nested object (flattened with a path prefix),
+     * ordered by {@link ExcelColumn#index()}.
+     */
+    private List<ColumnEntry> collectColumnEntries() {
+        List<ColumnEntry> entries = new ArrayList<>();
+        for (Field f : columnFields) {
+            entries.add(new ColumnEntry(f, null));
+        }
+        for (Field childField : infoChildFields) {
+            for (Class<?> c = childField.getType(); c != null && c != Object.class; c = c.getSuperclass()) {
+                for (Field cf : c.getDeclaredFields()) {
+                    if (cf.getAnnotation(ExcelColumn.class) != null) {
+                        entries.add(new ColumnEntry(cf, childField.getName()));
+                    }
+                }
+            }
+        }
+        entries.sort(Comparator.comparingInt(e -> e.field.getAnnotation(ExcelColumn.class).index()));
+        return entries;
+    }
+
     private void handleExcelColumn(){
         handleCascadeAbleInterface();
-        if (columnFields.isEmpty()) return;
+        if (columnFields.isEmpty() && infoChildFields.isEmpty()) return;
 
         Map<String, CascadeValidateModel> cascadeValidateModelMap = info.cascadeValidateModel != null
                 ? info.cascadeValidateModel.stream().collect(Collectors.toMap(CascadeValidateModel::getFieldName, Function.identity()))
                 : new HashMap<>();
 
-        columnFields.sort(Comparator.comparingInt(f -> f.getAnnotation(ExcelColumn.class).index()));
+        // Build the full column list: top-level @ExcelColumn fields plus columns flattened from
+        // @ExcelInfoChild nested objects, then order everything by @ExcelColumn.index().
+        List<ColumnEntry> entries = collectColumnEntries();
 
         Map<String, ExcelModel> excelModelMap = new HashMap<>();
         int totalCells = 0;
-        for (Field f : columnFields) {
-            excelModelMap.put(f.getName(), new ExcelModel(f.getName()));
-            int mci = f.getAnnotation(ExcelColumn.class).mergeCellIndex();
+        for (ColumnEntry e : entries) {
+            if (e.pathPrefix == null) {
+                excelModelMap.put(e.field.getName(), new ExcelModel(e.field.getName()));
+            }
+            int mci = e.field.getAnnotation(ExcelColumn.class).mergeCellIndex();
             totalCells += (mci <= 0) ? 1 : mci;
         }
 
@@ -267,10 +306,12 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         LinkedList<ExcelModel> excelModels = new LinkedList<>();
         AtomicInteger count = new AtomicInteger();
 
-        for (Field column : columnFields) {
+        for (ColumnEntry entry : entries) {
+            Field column = entry.field;
             column.setAccessible(true);
             String fieldName = column.getName();
-            ExcelModel excelModel = excelModelMap.get(fieldName);
+            boolean isChild = entry.pathPrefix != null;
+            ExcelModel excelModel = isChild ? new ExcelModel(fieldName) : excelModelMap.get(fieldName);
             ExcelColumn annotation = column.getAnnotation(ExcelColumn.class);
             String columnName = annotation.columnName();
 
@@ -282,23 +323,32 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             excelModel.setNoneCellDefaultValue(annotation.noneCellDefaultValue());
             excelModel.setMergeCellIndex(annotation.mergeCellIndex());
 
-            CascadeValidateModel cascadeModel = cascadeValidateModelMap.get(fieldName);
-            if (cascadeModel != null) {
-                excelModel.setCascadeValidateModel(createCascadeModelWrapper(excelModel, excelModelMap, cascadeModel));
-            }
+            if (isChild) {
+                // Flattened child column: read the nested value via path parent.child.
+                excelModel.setSourcePath(entry.pathPrefix + "." + fieldName);
+                applyInlineTranslate(annotation, excelModel);
+                applyExcelImage(column, excelModel);
+                applyExcelDateFormat(column, excelModel);
+                applyExcelFormula(column, excelModel);
+            } else {
+                CascadeValidateModel cascadeModel = cascadeValidateModelMap.get(fieldName);
+                if (cascadeModel != null) {
+                    excelModel.setCascadeValidateModel(createCascadeModelWrapper(excelModel, excelModelMap, cascadeModel));
+                }
 
-            applyInlineTranslate(annotation, excelModel);
-            applySourceMapping(annotation, excelModel);
-            applyExcelImage(column, excelModel);
-            applyExcelListBoxField(column, fieldName, excelModel);
-            applyExcelListBoxMethod(fieldName, excelModel, excelModelMap);
-            applyExcelDateFormat(column, excelModel);
-            applyExcelTranslateMethod(fieldName, excelModel);
-            applyExcelCustomValidateMethod(fieldName, excelModel);
-            applyExcelFormula(column, excelModel);
+                applyInlineTranslate(annotation, excelModel);
+                applySourceMapping(annotation, excelModel);
+                applyExcelImage(column, excelModel);
+                applyExcelListBoxField(column, fieldName, excelModel);
+                applyExcelListBoxMethod(fieldName, excelModel, excelModelMap);
+                applyExcelDateFormat(column, excelModel);
+                applyExcelTranslateMethod(fieldName, excelModel);
+                applyExcelCustomValidateMethod(fieldName, excelModel);
+                applyExcelFormula(column, excelModel);
 
-            if (column.getAnnotation(ExcelData.class) != null) {
-                info.excelData = Reflect.getField(column, excelInfo);
+                if (column.getAnnotation(ExcelData.class) != null) {
+                    info.excelData = Reflect.getField(column, excelInfo);
+                }
             }
 
             excelModel.setIndex(annotation.index());
