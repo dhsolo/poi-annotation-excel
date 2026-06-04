@@ -56,6 +56,22 @@ public interface CellValueSetter {
     void setCellValue(Cell cell, Object value);
 
     /**
+     * Writes {@code value} into the given cell, treating temporal values as typed, date-formatted
+     * cells. When {@code value} is a {@link java.util.Date}, {@link java.util.Calendar},
+     * {@link java.time.LocalDate}, or {@link java.time.LocalDateTime}, it is written with its
+     * native type and a cell style using {@code datePattern} (or a type-based default when
+     * {@code datePattern} is {@code null}); all other values delegate to
+     * {@link #setCellValue(Cell, Object)}.
+     *
+     * @param cell        the target POI cell; must not be {@code null}
+     * @param value       the value to write; may be {@code null}
+     * @param datePattern the date format pattern for temporal values, or {@code null} for a default
+     */
+    default void setCellValue(Cell cell, Object value, String datePattern) {
+        setCellValue(cell, value);
+    }
+
+    /**
      * Builds an {@link ExcelRowData} context object that encapsulates the current position
      * and data for use by {@link RowDataMapper} and {@link ExcelTranslateHandler} callbacks.
      *

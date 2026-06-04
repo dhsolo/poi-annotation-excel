@@ -87,7 +87,8 @@ public class TranslateCellResolver implements CellValueResolver {
             value = Reflect.hasText(ctx.model().getNoneCellDefaultValue())
                     ? ctx.model().getNoneCellDefaultValue() : ctx.noneCellDefaultValue();
         }
-        ctx.cellValueSetter().setCellValue(ctx.cell(), value);
+        ctx.cellValueSetter().setCellValue(ctx.cell(), value,
+                ctx.model().isDate() ? ctx.model().getPattern() : null);
         return 0;
     }
 }

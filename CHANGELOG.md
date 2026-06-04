@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format is based on
 ### Fixed
 - Numeric and boolean cell values are now written with their native cell type instead of as
   text (previously every value was stored as a string, breaking sorting/aggregation).
+- Date/time values (`Date`, `Calendar`, `LocalDate`, `LocalDateTime`) are written as typed,
+  date-formatted cells; `@ExcelDateFormat(pattern = ...)` is now honored on export (it was
+  previously ignored, leaving dates as plain text).
 - Image-heavy top-level sheets now use the memory-safe disk-staging path (previously a
   gating bug forced in-memory image embedding).
 - Windows file-lock failure when injecting images into the temporary workbook ZIP.

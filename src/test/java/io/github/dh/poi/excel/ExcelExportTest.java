@@ -17,9 +17,11 @@ package io.github.dh.poi.excel;
 
 import io.github.dh.poi.excel.annotation.ExcelColumn;
 import io.github.dh.poi.excel.annotation.ExcelData;
+import io.github.dh.poi.excel.annotation.ExcelDateFormat;
 import io.github.dh.poi.excel.annotation.ExcelInfo;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -27,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +73,61 @@ class ExcelExportTest {
             Row r2 = sheet.getRow(2);
             assertThat((int) r2.getCell(0).getNumericCellValue()).isEqualTo(2);
             assertThat(r2.getCell(2).getStringCellValue()).isEqualTo("离线");
+        }
+    }
+
+    @Test
+    void writesDateColumnsAsTypedDateCells() throws Exception {
+        List<Event> data = List.of(new Event("上线", LocalDate.of(2024, 6, 1)));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ExcelUtil.export(out, "events.xlsx", new EventModel().setData(data));
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(out.toByteArray()))) {
+            Cell dateCell = wb.getSheetAt(0).getRow(1).getCell(1);
+            assertThat(dateCell.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(DateUtil.isCellDateFormatted(dateCell)).isTrue();
+            assertThat(dateCell.getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2024, 6, 1));
+        }
+    }
+
+    @ExcelInfo(sheetName = "事件", isBigData = false)
+    public static class EventModel {
+        @ExcelData
+        private List<Event> data;
+
+        @ExcelColumn(columnName = "名称", index = 1)
+        private String name;
+
+        @ExcelColumn(columnName = "日期", index = 2)
+        @ExcelDateFormat(pattern = "yyyy-MM-dd")
+        private LocalDate day;
+
+        public EventModel setData(List<Event> data) {
+            this.data = data;
+            return this;
+        }
+
+        public List<Event> getData() {
+            return data;
+        }
+    }
+
+    public static class Event {
+        private final String name;
+        private final LocalDate day;
+
+        public Event(String name, LocalDate day) {
+            this.name = name;
+            this.day = day;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public LocalDate getDay() {
+            return day;
         }
     }
 

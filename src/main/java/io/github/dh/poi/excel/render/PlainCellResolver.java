@@ -68,7 +68,8 @@ public class PlainCellResolver implements CellValueResolver {
                     ? ctx.model().getNoneCellDefaultValue() : ctx.noneCellDefaultValue();
             ctx.cellValueSetter().setCellValue(ctx.cell(), defaultVal);
         } else {
-            ctx.cellValueSetter().setCellValue(ctx.cell(), value);
+            ctx.cellValueSetter().setCellValue(ctx.cell(), value,
+                    ctx.model().isDate() ? ctx.model().getPattern() : null);
         }
         return 0;
     }

@@ -315,8 +315,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         if (value == null) { cell.setCellValue(""); return; }
         try {
             // Write numbers and booleans with their native cell type so Excel can sort/aggregate
-            // them (rather than storing every value as text). Dates are kept as text here because
-            // a typed date needs a date-formatted cell style to display correctly.
+            // them (rather than storing every value as text). Dates are handled by the
+            // date-aware overload below (they need a date-formatted style to display correctly).
             if (value instanceof Number number) {
                 cell.setCellValue(number.doubleValue());
             } else if (value instanceof Boolean bool) {
@@ -327,6 +327,58 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         } catch (Exception e) {
             logger.error("Error setting cell value: {}", value, e);
             cell.setCellValue("ERROR");
+        }
+    }
+
+    /** Cache of date cell styles keyed by format pattern (bounded by the few distinct patterns used). */
+    private final Map<String, CellStyle> dateStyleCache = new HashMap<>();
+
+    @Override
+    public void setCellValue(Cell cell, Object value, String datePattern) {
+        if (cell == null) return;
+        if (value != null && isTemporal(value)) {
+            try {
+                writeTemporal(cell, value, datePattern != null ? datePattern : defaultDatePattern(value));
+                return;
+            } catch (Exception e) {
+                logger.error("Error setting date cell value: {}", value, e);
+                cell.setCellValue(value.toString());
+                return;
+            }
+        }
+        setCellValue(cell, value);
+    }
+
+    private static boolean isTemporal(Object value) {
+        return value instanceof java.util.Date
+                || value instanceof java.util.Calendar
+                || value instanceof java.time.LocalDate
+                || value instanceof java.time.LocalDateTime;
+    }
+
+    private static String defaultDatePattern(Object value) {
+        return (value instanceof java.time.LocalDate || value instanceof java.sql.Date)
+                ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm:ss";
+    }
+
+    private void writeTemporal(Cell cell, Object value, String pattern) {
+        CellStyle style = dateStyleCache.computeIfAbsent(pattern, p -> {
+            CellStyle s = book.createCellStyle();
+            s.cloneStyleFrom(styleManager.getCellStyle());
+            s.setDataFormat(book.getCreationHelper().createDataFormat().getFormat(p));
+            return s;
+        });
+        cell.setCellStyle(style);
+        if (value instanceof java.util.Date d) {
+            cell.setCellValue(d);
+        } else if (value instanceof java.util.Calendar c) {
+            cell.setCellValue(c);
+        } else if (value instanceof java.time.LocalDate ld) {
+            cell.setCellValue(ld);
+        } else if (value instanceof java.time.LocalDateTime ldt) {
+            cell.setCellValue(ldt);
+        } else {
+            cell.setCellValue(value.toString());
         }
     }
 
