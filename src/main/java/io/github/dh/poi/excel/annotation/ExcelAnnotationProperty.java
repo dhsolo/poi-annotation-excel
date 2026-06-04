@@ -134,4 +134,21 @@ public interface ExcelAnnotationProperty {
      *              parameter of the underlying {@code addDiyRowContext} call
      */
     record DiyRowConfig(String text, boolean merge) {}
+
+    /**
+     * Returns the parent-header groups declared via {@code @ExcelColumnParent}, or {@code null}
+     * when none are present. Column indices are in data-column space (excluding any order column).
+     *
+     * @return the parent-header spans, or {@code null}
+     */
+    default List<ParentHeader> getParentHeaders() { return null; }
+
+    /**
+     * A grouped (parent) header cell spanning a contiguous range of data columns.
+     *
+     * @param label    the parent header text
+     * @param startCol the first data-column index covered (inclusive)
+     * @param endCol   the last data-column index covered (inclusive)
+     */
+    record ParentHeader(String label, int startCol, int endCol) {}
 }

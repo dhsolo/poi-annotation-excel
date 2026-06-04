@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `@ExcelColumnParent` is now implemented: renders a two-row grouped header (parent label merged
+  over its child columns). A new `value()` attribute supplies the parent label; child columns read
+  their values via `sourceField`/`sourcePath`.
 - `@ExcelInfoChild` is now implemented for both export and import: a nested object's
   `@ExcelColumn` columns are flattened into the parent sheet (ordered with the parent columns by
   `index()`); on import the nested object is rebuilt and populated via path.

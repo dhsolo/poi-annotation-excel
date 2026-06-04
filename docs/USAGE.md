@@ -145,8 +145,19 @@ public class Customer {
 }
 ```
 
-### `@ExcelColumnParent`（字段）
-> ⚠️ **当前未实现**：注解仅有 `columns()`、缺少父列标题/索引等元数据，且两行合并表头需要较大的渲染改造。暂不要使用。
+### `@ExcelColumnParent(value, columns)`（字段）
+生成**两行合并表头**：上行父标题 `value`（横向合并跨子列），下行各子列标题。子列为 `@ExcelColumn` 数组，**每个子列须用 `sourceField`（或 `sourcePath`）指定取值来源**（子列无对应 Java 字段）。子列与其它列一起按 `index()` 统一排序（同组子列需相邻索引）。
+
+```java
+@ExcelColumn(columnName = "名称", index = 1) private String name;
+
+@ExcelColumnParent(value = "销售额", columns = {
+    @ExcelColumn(columnName = "Q1", index = 2, sourceField = "q1"),
+    @ExcelColumn(columnName = "Q2", index = 3, sourceField = "q2")
+})
+private Object sales;   // 锚点字段；值来自行对象的 getQ1()/getQ2()
+```
+> 非分组列在父标题行对应位置留空（仅导出）。
 
 ### `@ExcelContext`（字段或方法）
 在 Sheet 指定位置注入额外的上下文行。
@@ -503,4 +514,4 @@ ImageDownloadPolicy.setBlockPrivateNetworks(true);   // 应用启动时设置一
 - 流式 `readAsBeans` 按 `@ExcelColumn` **位置**或**表头名**绑定，扩展名缺失的图片 URL 退化为 JPEG。
 - 构建/Javadoc 对**含非 ASCII 字符的工程路径**敏感（已在 pom 用 UTF-8 兜底，仍建议纯英文路径）。
 - 列字段值通过 getter 反射读取（已用 LambdaMetafactory 缓存加速），行对象需提供对应 getter；导入目标类需对应 setter。
-- `@ExcelColumnParent` 注解**已定义但当前未实现**（不要依赖）。
+- `@ExcelColumnParent` 仅支持导出（两行表头）；非分组列在父标题行留空。

@@ -28,12 +28,16 @@ import java.lang.annotation.Target;
  * one parent header cell spans several child column cells. The {@link #columns()} array
  * lists the individual sub-columns that belong to this parent group.
  *
+ * <p>Each child {@link ExcelColumn} must declare its value source via
+ * {@link ExcelColumn#sourceField()} (or {@link ExcelColumn#sourcePath()}), since the child
+ * columns do not map to a Java field directly.
+ *
  * <pre>{@code
- * @ExcelColumnParent(columns = {
- *     @ExcelColumn(columnName = "Q1 Sales", index = 2),
- *     @ExcelColumn(columnName = "Q2 Sales", index = 3)
+ * @ExcelColumnParent(value = "销售额", columns = {
+ *     @ExcelColumn(columnName = "Q1", index = 2, sourceField = "q1Sales"),
+ *     @ExcelColumn(columnName = "Q2", index = 3, sourceField = "q2Sales")
  * })
- * private SalesGroup salesGroup;
+ * private Object salesGroup;   // anchor field; values come from sourceField on the row object
  * }</pre>
  *
  * @author dh
@@ -42,6 +46,11 @@ import java.lang.annotation.Target;
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ExcelColumnParent {
+
+    /**
+     * The parent header text rendered (merged) above the child columns. Defaults to empty.
+     */
+    String value() default "";
 
     /**
      * The child {@link ExcelColumn} definitions that fall under this parent column group.

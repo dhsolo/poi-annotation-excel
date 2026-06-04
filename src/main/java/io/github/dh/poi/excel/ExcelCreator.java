@@ -197,6 +197,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private int orderColumnSpan = 1;
     private Object object;
     private String[] header;
+    /** Parent-header groups from @ExcelColumnParent (data-column space); null when none. */
+    private List<ExcelAnnotationProperty.ParentHeader> parentHeaders;
     private String title;
     private String sheetName;
     private boolean isChildComplex = false;
@@ -477,6 +479,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private void initFromAnnotationProperty(ExcelAnnotationProperty prop, ExcelInfo info) {
         setTitle(prop.getTitle());
         setHeader(prop.getHeader());
+        this.parentHeaders = prop.getParentHeaders();
         setObject(prop.getExcelData());
         setColumnMergeInfo(prop.getMergeInfo());
         Map<Integer, ExcelModel> mapping = new HashMap<>();
@@ -739,6 +742,28 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 rowNum++;
                 dsize++;
             }
+        }
+
+        // Parent (grouped) header row from @ExcelColumnParent: rendered just above the column
+        // header row, with each parent label merged across its child column range.
+        if (parentHeaders != null && !parentHeaders.isEmpty() && needHandle
+                && header != null && header.length > 0) {
+            int orderOffset = needOrderNum ? orderColumnSpan : 0;
+            int plength = header.length + orderOffset;
+            Row pr = sheet.createRow(rowNum);
+            pr.setHeight((short) headerRowHeight);
+            for (int i = 0; i < plength; i++) {
+                pr.createCell(i).setCellStyle(headerStyle);
+            }
+            for (ExcelAnnotationProperty.ParentHeader ph : parentHeaders) {
+                int s = ph.startCol() + orderOffset;
+                int e = ph.endCol() + orderOffset;
+                if (s < plength) {
+                    pr.getCell(s).setCellValue(ph.label());
+                    if (e > s) setMergeColumn(rowNum, rowNum, s, Math.min(e, plength - 1));
+                }
+            }
+            rowNum++;
         }
 
         if (header != null && header.length > 0 && needHandle) {

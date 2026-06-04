@@ -59,6 +59,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
     private final List<Field> dateFields = new ArrayList<>();
     private final List<Field> listBoxFields = new ArrayList<>();
     private final List<Field> infoChildFields = new ArrayList<>();
+    private final List<Field> parentColumnFields = new ArrayList<>();
     private final List<Field> rowFields = new ArrayList<>();
     private final List<Method> translateMethods = new ArrayList<>();
     private final List<Method> listBoxMethods = new ArrayList<>();
@@ -109,6 +110,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 if (field.getAnnotation(ExcelImage.class) != null)    imageFields.add(field);
                 if (field.getAnnotation(ExcelDateFormat.class) != null) dateFields.add(field);
                 if (field.getAnnotation(ExcelInfoChild.class) != null) infoChildFields.add(field);
+                if (field.getAnnotation(ExcelColumnParent.class) != null) parentColumnFields.add(field);
                 if (field.getAnnotation(ExcelListBox.class) != null)  listBoxFields.add(field);
                 if (field.getAnnotation(ExcelRow.class) != null)      rowFields.add(field);
                 if (field.getAnnotation(ExcelTitle.class) != null && titleField == null) {
@@ -243,44 +245,68 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
     /**
      * Process column annotations and build column model list.
      */
-    /** One column to render: a declaring {@link ExcelColumn} field, optionally flattened from a child. */
+    /** One column to render. */
     private static final class ColumnEntry {
+        /** The declaring field; {@code null} for an {@code @ExcelColumnParent} child column. */
         final Field field;
-        /** {@code null} for a top-level column; the parent field name when flattened via @ExcelInfoChild. */
+        final ExcelColumn annotation;
+        /** Value/identity key: the field name, or the sourceField for a parent child. */
+        final String readKey;
+        /** {@code @ExcelInfoChild} flatten prefix; {@code null} otherwise. */
         final String pathPrefix;
+        /** {@code @ExcelColumnParent} group header label; {@code null} if not grouped. */
+        final String parentLabel;
+        /** Identity of the parent group (parent field name); {@code null} if not grouped. */
+        final String groupKey;
 
-        ColumnEntry(Field field, String pathPrefix) {
+        ColumnEntry(Field field, ExcelColumn annotation, String readKey,
+                    String pathPrefix, String parentLabel, String groupKey) {
             this.field = field;
+            this.annotation = annotation;
+            this.readKey = readKey;
             this.pathPrefix = pathPrefix;
+            this.parentLabel = parentLabel;
+            this.groupKey = groupKey;
         }
     }
 
     /**
-     * Collects all columns: top-level {@code @ExcelColumn} fields plus the {@code @ExcelColumn}
-     * fields of every {@code @ExcelInfoChild} nested object (flattened with a path prefix),
-     * ordered by {@link ExcelColumn#index()}.
+     * Collects all columns ordered by {@link ExcelColumn#index()}: top-level {@code @ExcelColumn}
+     * fields, the columns of every {@code @ExcelInfoChild} nested object (flattened with a path
+     * prefix), and the columns of every {@code @ExcelColumnParent} group (fieldless; value read
+     * via {@code sourceField}/{@code sourcePath}).
      */
     private List<ColumnEntry> collectColumnEntries() {
         List<ColumnEntry> entries = new ArrayList<>();
         for (Field f : columnFields) {
-            entries.add(new ColumnEntry(f, null));
+            entries.add(new ColumnEntry(f, f.getAnnotation(ExcelColumn.class), f.getName(), null, null, null));
         }
         for (Field childField : infoChildFields) {
             for (Class<?> c = childField.getType(); c != null && c != Object.class; c = c.getSuperclass()) {
                 for (Field cf : c.getDeclaredFields()) {
-                    if (cf.getAnnotation(ExcelColumn.class) != null) {
-                        entries.add(new ColumnEntry(cf, childField.getName()));
+                    ExcelColumn ann = cf.getAnnotation(ExcelColumn.class);
+                    if (ann != null) {
+                        entries.add(new ColumnEntry(cf, ann, cf.getName(), childField.getName(), null, null));
                     }
                 }
             }
         }
-        entries.sort(Comparator.comparingInt(e -> e.field.getAnnotation(ExcelColumn.class).index()));
+        for (Field parentField : parentColumnFields) {
+            ExcelColumnParent parent = parentField.getAnnotation(ExcelColumnParent.class);
+            String label = Reflect.hasText(parent.value()) ? parent.value() : parentField.getName();
+            for (ExcelColumn ann : parent.columns()) {
+                String readKey = Reflect.hasText(ann.sourceField()) ? ann.sourceField()
+                        : (Reflect.hasText(ann.sourcePath()) ? ann.sourcePath() : ann.columnName());
+                entries.add(new ColumnEntry(null, ann, readKey, null, label, parentField.getName()));
+            }
+        }
+        entries.sort(Comparator.comparingInt(e -> e.annotation.index()));
         return entries;
     }
 
     private void handleExcelColumn(){
         handleCascadeAbleInterface();
-        if (columnFields.isEmpty() && infoChildFields.isEmpty()) return;
+        if (columnFields.isEmpty() && infoChildFields.isEmpty() && parentColumnFields.isEmpty()) return;
 
         Map<String, CascadeValidateModel> cascadeValidateModelMap = info.cascadeValidateModel != null
                 ? info.cascadeValidateModel.stream().collect(Collectors.toMap(CascadeValidateModel::getFieldName, Function.identity()))
@@ -293,10 +319,10 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         Map<String, ExcelModel> excelModelMap = new HashMap<>();
         int totalCells = 0;
         for (ColumnEntry e : entries) {
-            if (e.pathPrefix == null) {
+            if (e.field != null && e.pathPrefix == null) {
                 excelModelMap.put(e.field.getName(), new ExcelModel(e.field.getName()));
             }
-            int mci = e.field.getAnnotation(ExcelColumn.class).mergeCellIndex();
+            int mci = e.annotation.mergeCellIndex();
             totalCells += (mci <= 0) ? 1 : mci;
         }
 
@@ -306,32 +332,42 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         LinkedList<ExcelModel> excelModels = new LinkedList<>();
         AtomicInteger count = new AtomicInteger();
 
+        List<ExcelAnnotationProperty.ParentHeader> parentHeaders = new ArrayList<>();
+        String curGroup = null, curLabel = null;
+        int spanStart = -1, spanEnd = -1;
+
         for (ColumnEntry entry : entries) {
             Field column = entry.field;
-            column.setAccessible(true);
-            String fieldName = column.getName();
-            boolean isChild = entry.pathPrefix != null;
-            ExcelModel excelModel = isChild ? new ExcelModel(fieldName) : excelModelMap.get(fieldName);
-            ExcelColumn annotation = column.getAnnotation(ExcelColumn.class);
+            ExcelColumn annotation = entry.annotation;
+            String readKey = entry.readKey;
+            boolean isInfoChild = entry.pathPrefix != null;
+            boolean isParentChild = column == null;
+            ExcelModel excelModel = (!isInfoChild && !isParentChild)
+                    ? excelModelMap.get(readKey) : new ExcelModel(readKey);
             String columnName = annotation.columnName();
 
+            int startCol = count.get();
             columnWidth.put(count.get(), annotation.columnWidth());
             if (annotation.needMergeCell()) {
-                columnMergeInfo.put(count.get(), fieldName);
+                columnMergeInfo.put(count.get(), readKey);
             }
             excelModel.setNullAble(annotation.nullable());
             excelModel.setNoneCellDefaultValue(annotation.noneCellDefaultValue());
             excelModel.setMergeCellIndex(annotation.mergeCellIndex());
 
-            if (isChild) {
-                // Flattened child column: read the nested value via path parent.child.
-                excelModel.setSourcePath(entry.pathPrefix + "." + fieldName);
+            if (isParentChild) {
+                // @ExcelColumnParent child: value comes from sourceField/sourcePath on the row.
+                applyInlineTranslate(annotation, excelModel);
+                applySourceMapping(annotation, excelModel);
+            } else if (isInfoChild) {
+                excelModel.setSourcePath(entry.pathPrefix + "." + readKey);
                 applyInlineTranslate(annotation, excelModel);
                 applyExcelImage(column, excelModel);
                 applyExcelDateFormat(column, excelModel);
                 applyExcelFormula(column, excelModel);
             } else {
-                CascadeValidateModel cascadeModel = cascadeValidateModelMap.get(fieldName);
+                column.setAccessible(true);
+                CascadeValidateModel cascadeModel = cascadeValidateModelMap.get(readKey);
                 if (cascadeModel != null) {
                     excelModel.setCascadeValidateModel(createCascadeModelWrapper(excelModel, excelModelMap, cascadeModel));
                 }
@@ -339,11 +375,11 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 applyInlineTranslate(annotation, excelModel);
                 applySourceMapping(annotation, excelModel);
                 applyExcelImage(column, excelModel);
-                applyExcelListBoxField(column, fieldName, excelModel);
-                applyExcelListBoxMethod(fieldName, excelModel, excelModelMap);
+                applyExcelListBoxField(column, readKey, excelModel);
+                applyExcelListBoxMethod(readKey, excelModel, excelModelMap);
                 applyExcelDateFormat(column, excelModel);
-                applyExcelTranslateMethod(fieldName, excelModel);
-                applyExcelCustomValidateMethod(fieldName, excelModel);
+                applyExcelTranslateMethod(readKey, excelModel);
+                applyExcelCustomValidateMethod(readKey, excelModel);
                 applyExcelFormula(column, excelModel);
 
                 if (column.getAnnotation(ExcelData.class) != null) {
@@ -368,12 +404,31 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 header[count.getAndIncrement()] = columnName;
                 excelModels.add(excelModel);
             }
+
+            // Track contiguous @ExcelColumnParent spans (in data-column space).
+            int endCol = count.get() - 1;
+            if (entry.groupKey != null) {
+                if (entry.groupKey.equals(curGroup)) {
+                    spanEnd = endCol;
+                } else {
+                    if (curGroup != null) parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
+                    curGroup = entry.groupKey;
+                    curLabel = entry.parentLabel;
+                    spanStart = startCol;
+                    spanEnd = endCol;
+                }
+            } else if (curGroup != null) {
+                parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
+                curGroup = null;
+            }
         }
+        if (curGroup != null) parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
 
         info.header = header;
         info.excelModels = excelModels;
         info.mergeInfo = columnMergeInfo;
         info.columnWidthInfo = columnWidth;
+        info.parentHeaders = parentHeaders.isEmpty() ? null : parentHeaders;
         if (excelDataField != null) {
             excelDataField.setAccessible(true);
             info.excelData = Reflect.getField(excelDataField, this.excelInfo);
@@ -630,6 +685,8 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
 
         private List<ExcelAnnotationProperty.DiyRowConfig> diyRows;
 
+        private List<ExcelAnnotationProperty.ParentHeader> parentHeaders;
+
         /** Returns the title text to render above the header row, or {@code null} if absent. */
         @Override
         public String getTitle() {
@@ -640,6 +697,12 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         @Override
         public String[] getHeader() {
             return header;
+        }
+
+        /** Returns the parent-header groups from {@code @ExcelColumnParent}, or {@code null}. */
+        @Override
+        public List<ExcelAnnotationProperty.ParentHeader> getParentHeaders() {
+            return parentHeaders;
         }
 
         /** Returns the ordered list of {@link ExcelModel} descriptors, one per logical column. */
