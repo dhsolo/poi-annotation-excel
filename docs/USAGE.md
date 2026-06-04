@@ -1,0 +1,487 @@
+# poi-annotation-excel 使用手册
+
+基于 Apache POI 的注解驱动 Excel 导出/导入库。本手册覆盖全部公开用法与每个配置项。
+
+- 坐标：`io.github.dh:poi-annotation-excel`
+- 基础包：`io.github.dh.poi.excel`
+- 运行环境：JDK 17+，POI 5.2.5（传递依赖）
+
+---
+
+## 目录
+
+1. [快速上手](#1-快速上手)
+2. [注解参考（全属性）](#2-注解参考全属性)
+3. [导出 API](#3-导出-api)
+4. [动态导出（Builder）](#4-动态导出builder)
+5. [自定义行 / 标题 / 序号 / 冻结 / 列宽 / 样式](#5-自定义行--标题--序号--冻结--列宽--样式)
+6. [多 Sheet 与嵌套列](#6-多-sheet-与嵌套列)
+7. [图片导出](#7-图片导出)
+8. [导入 API](#8-导入-api)
+9. [低内存流式导入 StreamingExcelReader](#9-低内存流式导入-streamingexcelreader)
+10. [级联下拉 CascadeValidateModelBuilder](#10-级联下拉-cascadevalidatemodelbuilder)
+11. [下拉校验 / 翻译 / 自定义校验 / 公式](#11-下拉校验--翻译--自定义校验--公式)
+12. [模板填充 ExcelTemplateFiller](#12-模板填充-exceltemplatefiller)
+13. [类型化写值规则](#13-类型化写值规则)
+14. [安全（图片下载）](#14-安全图片下载)
+15. [枚举与常量](#15-枚举与常量)
+16. [限制与注意事项](#16-限制与注意事项)
+
+---
+
+## 1. 快速上手
+
+### 导出（注解模型）
+
+```java
+@ExcelInfo(sheetName = "设备列表")
+public class DeviceExportModel {
+    @ExcelTitle  private String title;            // 可选标题行
+    @ExcelData   private List<Device> data;       // 必填：数据行来源
+
+    @ExcelColumn(columnName = "设备名称", index = 1) private String devName;
+    @ExcelColumn(columnName = "状态", index = 2, translate = {"0:离线", "1:在线"}) private Integer status;
+    // getter/setter（模型需要无参构造器）
+}
+
+// 列字段（devName/status...）按 name 从每个 Device 行对象读取（需对应 getter）
+ExcelUtil.export(response.getOutputStream(), "设备列表.xlsx",
+        new DeviceExportModel().setTitle("月度报表").setData(deviceList));
+```
+
+### 导入（同一个注解模型）
+
+```java
+List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportModel.class);
+```
+
+---
+
+## 2. 注解参考（全属性）
+
+### `@ExcelInfo`（类级，描述整张 Sheet）
+
+| 属性 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `sheetName` | String | `""` | Sheet 名（空则用默认名） |
+| `excelType` | String | `"xlsx"` | 输出类型，`ExcelCreator.XLSX` / `ExcelCreator.XLS` |
+| `needOrder` | boolean | `false` | 是否在最前面加自增「序号」列 |
+| `orderColumnSpan` | int | `1` | 序号列横向跨/合并的列数（`needOrder=true` 时有效） |
+| `titleHeight` | int | `2000` | 标题行高（POI 单位 = 1/20 磅） |
+| `headerHeight` | int | `2000` | 表头行高 |
+| `startRow` | int | `0` | **导入**时数据起始行（0 基） |
+| `sheetNum` | int[] | `{0}` | **导入**时读取的 Sheet 索引 |
+| `exceptColumnNum` | int[] | `{}` | **导入**时跳过的列索引 |
+| `imageReadTimeOut` | int | `500` | 远程图片下载超时（ms） |
+| `imageSeparator` | String | `""` | 单元格内多图 URL 的分隔符（空则按 `,`） |
+| `pictureInnerType` | int | `0` | 图片锚定方式，见 [AnchorType](#15-枚举与常量) |
+| `isBigData` | boolean | `true` | 是否用 SXSSF 流式写（大数据省内存） |
+| `imageResize` | `@ExcelImageResize` | 不缩放 | 全局图片缩放策略 |
+| `noneCellDefaultValue` | String | `""` | 字段为 null/空时写入的默认文本 |
+
+### `@ExcelData`（字段）
+标记承载数据行的字段，类型为 `List<行对象>`。每个 Sheet 必填一个。
+
+### `@ExcelTitle`（字段或方法）
+提供表头之上的标题文本，须为 `String`。可选。
+
+### `@ExcelColumn`（字段，定义一列）
+
+| 属性 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `columnName` | String | `""` | 列标题（空则用字段名） |
+| `index` | int | 必填 | 列顺序（升序排列；导入按位置绑定） |
+| `nullable` | boolean | `true` | **导入**时该列是否允许为空 |
+| `columnWidth` | int | `20` | 列宽（字符数） |
+| `needMergeCell` | boolean | `false` | 相邻同值是否纵向合并 |
+| `mergeCellIndex` | int | `1` | 合并跨度 |
+| `noneCellDefaultValue` | String | `""` | 该列 null 时的默认值（覆盖 Sheet 级） |
+| `translate` | String[] | `{}` | 内联翻译，`{"0:否","1:是"}`（导出 key→显示；导入反向） |
+| `sourcePath` | String | `""` | 点路径取嵌套值，如 `"device.type"` |
+| `sourceField` | String | `""` | 同级字段重定向，如显示列读另一个字段 |
+
+### `@ExcelDateFormat(pattern)`（字段）
+标记日期列并指定格式，默认 `"yyyy-MM-dd HH:mm:ss"`。导出时该列按**类型化日期单元格**写入并套用该格式。
+
+### `@ExcelImage`（字段）+ `@ExcelImageResize`
+见 [图片导出](#7-图片导出)。
+- `@ExcelImage.imageVisitPrev`：URL 前缀（拼到字段值前）。
+- `@ExcelImage.imageDownPath`：本地缓存目录。
+- `@ExcelImageResize.needResize/resizeWidth/resizeHeight`：缩放开关与尺寸（默认 500×500）。
+
+### `@ExcelListBox`（字段或方法）
+给列附加下拉校验列表。`listTextBox` 为静态候选；标注在方法上则运行时动态提供（方法名由 `columnName` 关联到列）。`isNeedAddTranslationException` 控制是否为翻译值加例外。
+
+### `@ExcelTranslateMethod(columnName)`（方法）
+为指定列提供自定义翻译函数，方法须返回 `Function`。比 `@ExcelColumn.translate` 更灵活（复杂映射）。同时存在时方法优先。
+
+### `@ExcelCustomValidateMethod(columnName)`（方法）
+意在为**导入**指定列提供自定义校验（配合 `ExcelCustomValidate` 接口：`boolean validate(ExcelRowData)` + `String errorMessage()`）。**当前该注解只被收集、未自动装配**——请改用编程式 `ExcelModel.setExcelCustomValidate(...)`（见 [第 11 节](#11-下拉校验--翻译--自定义校验--公式)）。
+
+### `@ExcelFormula(formula)`（字段）
+让该列每个数据单元格写入公式。公式中用 `@Column(列名)` 引用其它列（按列标题匹配），框架按行展开为「Excel 列号 + 当前行号」。
+
+### `@ExcelRow`（字段或方法）+ `@ExcelCell`
+向 Sheet 注入一行**自定义（非数据）行**，跨所有列合并。
+- `@ExcelRow.order`：多条自定义行的顺序（须唯一）。
+- `@ExcelRow.cells`：`@ExcelCell[]`，逐格指定内容（`value` 字面量 / `field` 取字段值，二选一）。
+
+### `@ExcelInfoChild`（字段）
+把嵌套子模型的列**拍平**进父 Sheet（父子列合并到同一行结构）。
+
+### `@ExcelColumnParent`（字段）
+把多个 `@ExcelColumn` 归到一个父字段下，形成**父列/合并表头**布局（`columns()` 为子列数组）。
+
+### `@ExcelContext`（字段或方法）
+在 Sheet 指定位置注入额外的上下文行。
+
+### `@ExcelHeaderColumnMapping`（方法）
+**导入**时提供动态「表头文本 → 字段名」映射（方法返回 `Map<String,String>`）。
+
+---
+
+## 3. 导出 API
+
+全部通过门面 `ExcelUtil`（注解模型）：
+
+```java
+// 写到输出流（name 为文件名，无需扩展名）
+ExcelUtil.export(OutputStream out, String name, Object excelModel);
+
+// 导出前追加自定义配置（自定义行、冻结等）
+ExcelUtil.export(OutputStream out, String name, Object excelModel, Consumer<ExcelCreator> configurator);
+
+// 写到本地文件
+ExcelUtil.exportLocal(String localPath, Object excelModel);
+
+// 转字节 / 输入流
+byte[]      ExcelUtil.toBytes(Object excelModel);
+InputStream ExcelUtil.toInputStream(Object excelModel);
+InputStream ExcelUtil.toInputStream(Object excelModel, Consumer<ExcelCreator> configurator);
+
+// 上传（自定义上传策略 ExcelUploader<R>）
+<R> R ExcelUtil.upload(ExcelUploader<R> uploader, String name, Object excelModel);
+<R> R ExcelUtil.upload(ExcelUploader<R> uploader, String name, Object excelModel, Consumer<ExcelCreator> cfg);
+```
+
+`configurator` 用法（在 `createExcel()` 之前调整）：
+
+```java
+ExcelUtil.export(out, "report.xlsx", model, creator -> {
+    creator.addDiyRowContext("数据来源：XX 系统", true);   // 合并的说明行
+    creator.setFreeze(0, 2, 0, 0);                        // 冻结前 2 行
+});
+```
+
+---
+
+## 4. 动态导出（Builder）
+
+无模型类时用 `ExcelCreatorBuilder`（适合动态列）：
+
+```java
+ExcelUtil.export(out, "report.xlsx",
+    ExcelCreatorBuilder.create("Sheet1")
+        .title("销售报表")
+        .data(salesList)                                // List<Bean> 或 List<Map>
+        .columns("姓名:name", "金额:amount", "日期:date") // "标题:字段名"
+        .autoSizeColumns(true));
+```
+
+`ExcelCreatorBuilder` 全部方法：
+
+| 方法 | 说明 |
+|------|------|
+| `create(sheetName)` | 静态工厂 |
+| `excelType(String)` / `excelType(ExcelType)` | 输出类型 |
+| `bigData(boolean)` | SXSSF 流式 |
+| `title(String)` | 标题行 |
+| `header(String[])` | 直接给表头数组 |
+| `data(Object)` | 数据（List<Bean>/List<Map>） |
+| `needOrderNum(boolean)` / `orderColumnSpan(int)` | 序号列 |
+| `rowHeight/titleRowHeight/headerRowHeight(int)` | 行高 |
+| `columns(String... "标题:字段")` | 列定义（简写） |
+| `columns(String[] headers, String[] fields)` | 列定义（分开给） |
+| `addColumn(int index, ExcelModel)` / `columnMapping(Map)` | 精细列定义 |
+| `columnMerge(Map)` / `addMerge(int col, String field)` | 列合并 |
+| `columnWidth(int col, int width)` | 列宽 |
+| `autoSizeColumns(boolean)` | 抽样自动列宽 |
+| `pictureType(int)` / `anchorType(AnchorType)` | 图片锚定 |
+| `imageReadTimeOut(int)` / `imagesSeparator(String)` | 图片下载 |
+| `noneCellDefaultValue(String)` | 空值默认文本 |
+| `freezeRow(int)` / `freezeColumn(int)` / `freeze(int rows,int cols)` | 冻结窗格 |
+| `titleCellStyle/cellStyle/headerCellStyle(CellStyle)` | 自定义样式 |
+| `child(LinkedList)` / `addChild(ExcelCreator)` | 子 Sheet |
+| `build()` / `toBytes()` / `toInputStream()` | 产出 |
+
+也可一次导出多个 Builder（多 Sheet）：
+
+```java
+ExcelUtil.export(out, "multi.xlsx", builder1, builder2);
+byte[] bytes = ExcelUtil.toBytes(builder1, builder2);
+```
+
+---
+
+## 5. 自定义行 / 标题 / 序号 / 冻结 / 列宽 / 样式
+
+### 序号列
+`@ExcelInfo(needOrder = true, orderColumnSpan = 1)`。`orderColumnSpan > 1` 时「序号」横向合并若干列。
+
+### 自定义行（DIY 上下文行）
+`ExcelCreator.addDiyRowContext(...)`（通过 configurator 调用），重载：
+
+```java
+creator.addDiyRowContext("说明文字");                       // 一行
+creator.addDiyRowContext("说明文字", true);                  // 是否整行合并
+creator.addDiyRowContext("说明文字", true, 600);             // + 行高
+creator.addDiyRowContext(ctx, sc, ec, cellStyleEnum, cellStyle, isMerge[, height][, afterTitle]);
+```
+
+也可在模型上用 `@ExcelRow` / `@ExcelCell` 声明式注入自定义行（见注解参考）。
+
+### 冻结窗格
+```java
+creator.setFreezeRow(2);            // 冻结前 2 行
+creator.setFreezeColumn(1);         // 冻结前 1 列
+creator.setFreeze(sc, sr, lc, er);  // 精确指定
+// Builder: .freezeRow(2) / .freezeColumn(1) / .freeze(2,1)
+```
+
+### 列宽 / 自动列宽
+```java
+creator.setColumnWidth(0, 30 * 256);   // POI 单位 = 1/256 字符宽
+creator.setAutoSizeColumns(true);      // 抽样估算（不逐格字体度量；大表友好）
+// 注解：@ExcelColumn(columnWidth = 20)
+```
+
+### 样式
+默认提供标题/表头/数据三套样式（Arial、居中、细边框）。可用 Builder 的 `cellStyle/headerCellStyle/titleCellStyle` 覆盖，或列上用 `CellStyleEnum`。
+
+---
+
+## 6. 多 Sheet 与嵌套列
+
+- **复杂/父子 Sheet（推荐）**：模型实现 `ComplexExcelModel` 可递归生成子表；父表的图片处理器、行号、样式在子表间共享。
+- **多 Sheet**：`ExcelUtil.export(out, name, creator1, creator2, ...)` 或 Builder 的 `addChild`。
+  > ⚠️ 已知问题：把多个**独立构建**的 `ExcelCreatorBuilder`/`ExcelCreator` 合并成多 Sheet 时，子表沿用各自工作簿的样式，POI 会抛 "Style does not belong to the supplied Workbook"。多 Sheet 暂请用 `ComplexExcelModel`。
+- **`@ExcelInfoChild`**：把嵌套子对象的列拍平进父行。
+- **`@ExcelColumnParent`**：形成合并表头（父列覆盖多子列）。
+
+---
+
+## 7. 图片导出
+
+字段同时标注 `@ExcelColumn` + `@ExcelImage`，字段值为图片 URL 或本地路径：
+
+```java
+@ExcelColumn(columnName = "照片", index = 3)
+@ExcelImage(imageVisitPrev = "https://cdn.example.com/")
+private String photoUrl;
+```
+
+- **多图单元格**：`@ExcelInfo(imageSeparator = ",")`，字段值用分隔符拼多个 URL，自动横向展开列。
+- **缩放**：`@ExcelInfo(imageResize = @ExcelImageResize(needResize = true, resizeWidth = 200, resizeHeight = 200))`。
+- **锚定方式**：`@ExcelInfo(pictureInnerType = ExcelCreator.MOVE_AND_RESIZE)` 或 Builder `.anchorType(AnchorType.DONT_MOVE_AND_RESIZE)`。
+- **超时**：`@ExcelInfo(imageReadTimeOut = 500)`。
+- **格式保留**：源为 PNG/JPEG/GIF 时按 URL 扩展名保留原格式（含 PNG 透明）；无需 resize 且格式匹配时原始字节直传，内存友好。
+- **大图量**：图片并行下载、磁盘暂存、以 STORED 注入 ZIP，避免字节堆积 OOM。
+
+安全见 [第 14 节](#14-安全图片下载)。
+
+---
+
+## 8. 导入 API
+
+```java
+// 注解驱动（clazz 带 @ExcelInfo/@ExcelColumn，按列位置绑定）
+List<T> ExcelUtil.importExcel(InputStream in, Class<T> clazz, ExcelModel... columns);
+List<T> ExcelUtil.importExcel(InputStream in, int sheetIndex, Class<T> clazz, ExcelModel... columns);
+List<T> ExcelUtil.importExcel(InputStream in, int sheetIndex, int startRow, Class<T> clazz, ExcelModel... columns);
+
+// 手动列（无注解，按位置）
+List<User> users = ExcelUtil.importExcel(in, User.class,
+        ExcelModel.of("name"), ExcelModel.of("age"), ExcelModel.of("dept"));
+
+// 跳过前 2 行元数据：
+List<User> users = ExcelUtil.importExcel(in, 0, 2, User.class, ExcelModel.of("name"), ExcelModel.of("age"));
+
+// 不要 POJO，直接取 Map：
+List<Map<String,Object>> rows = ExcelUtil.importExcelToMap(in, ExcelModel.of("col1"), ExcelModel.of("col2"));
+List<Map<String,Object>> rows = ExcelUtil.importExcelToMap(in, sheetIndex, startRow, columns...);
+```
+
+`ExcelModel.of(...)` 工厂：`of(field)`、`of(field, columnName)`、`of(field, translateMap)`；构造器还支持 `nullable`、`pattern`(日期)、图片等。
+
+### 监听器流式（DOM）
+
+```java
+ExcelUtil.importExcel(in, DeviceImportModel.class, new ExcelReadListener() {
+    @Override public void onRow(Map<String,Object> row, int rowIndex) { service.save(convert(row)); }
+    @Override public void onError(String message, int rowIndex) { log.warn("第{}行: {}", rowIndex, message); }
+    @Override public void onFinish(int totalRows) { log.info("共 {} 行", totalRows); }
+});
+// 手动列版本：ExcelUtil.importExcel(in, listener, ExcelModel.of("name"), ExcelModel.of("amount"));
+```
+> 注意：该监听器底层仍是 POI DOM（整本进内存）。超大文件请用第 9 节的流式读取器。
+
+> **导入目标类要求**：无参构造器 + 各列字段的 **public setter**（框架按字段名 `setXxx(类型)` 注入；缺 setter 的列会被静默跳过、保持默认值）。
+
+### 支持的导入类型
+`String`、全部基本类型及其包装类、`BigDecimal`、`BigInteger`、`java.util.Date`、`java.sql.Date`、`java.sql.Timestamp`、`java.time.LocalDate`、`java.time.LocalDateTime`。数值容忍千分位（`"1,234,567"`）；日期容忍九种常见格式（ISO-8601、`yyyy-MM-dd HH:mm:ss`、`yyyy/MM/dd`、`yyyyMMdd` 等）。
+
+---
+
+## 9. 低内存流式导入 StreamingExcelReader
+
+真·SAX 流式读取 `.xlsx`，内存有界。位于 `io.github.dh.poi.excel.importor`。
+
+```java
+// 逐行回调（不累积）
+StreamingExcelReader.read(in, 0, (rowIndex, cells) -> process(cells));         // cells: List<String>
+StreamingExcelReader.read(in, 0, startRowInclusive, (i, cells) -> ...);        // 跳过前置行
+
+// 表头映射 Map（首行为表头）
+List<Map<String,String>> rows = StreamingExcelReader.readAsMaps(in, 0);
+List<Map<String,String>> rows = StreamingExcelReader.readAsMaps(in, 0, headerRowIndex);
+
+// 映射到注解模型（按 @ExcelColumn 位置 或 表头名 绑定，首行表头）
+List<T> beans = StreamingExcelReader.readAsBeans(in, 0, T.class);
+List<T> beans = StreamingExcelReader.readAsBeans(in, 0, T.class, /*按表头名*/ true);
+List<T> beans = StreamingExcelReader.readAsBeans(in, 0, T.class, true, /*headerRowIndex*/ 2);
+```
+
+- `readAsBeans` 支持 `@ExcelColumn.translate` 反向映射；转换 `String`/数值/布尔/`BigDecimal`/日期时间（Excel 序列日期与文本日期均可）。
+- 作用域：仅 `.xlsx`、纯表格、前向只读；公式取缓存值；不含图片/合并区/随机访问。需要这些请用 `ExcelImportor`。
+
+---
+
+## 10. 级联下拉 CascadeValidateModelBuilder
+
+任意层级联动下拉（大类 → 小类 → 设备类型），EasyExcel 无等价能力。
+
+```java
+CascadeValidateModel model = CascadeValidateModelBuilder.builder("devBigType")
+    .addItem("模拟量设备",
+        CascadeValidateModelBuilder.builder("devSmallType")
+            .addItem("电流", CascadeValidateModelBuilder.builder("pointTypeCode").addItem("CT1").addItem("CT2"))
+            .addItem("电压"))
+    .addItem("数字量设备")     // 叶子
+    .build();
+```
+
+方法：`builder(field)` / `addItem(value)` / `addItem(value, 子builder...)` / `addItems(集合, 取名函数)` / `needAddTranslationException(boolean)` / `hasItems()` / `build()`。空安全：`addItem(name, hasChildren ? childBuilder : null)`。
+
+把级联模型挂到列上：在模型方法用 `@ExcelListBox(columnName="...")` 返回该级联，或通过模型装配。
+
+---
+
+## 11. 下拉校验 / 翻译 / 自定义校验 / 公式
+
+### 静态下拉
+```java
+@ExcelColumn(columnName = "状态", index = 1)
+@ExcelListBox(listTextBox = {"在线", "离线"})
+private String status;
+```
+
+### 动态下拉（方法）
+```java
+@ExcelListBox(columnName = "city")
+public String[] cityOptions() { return cityService.allNames().toArray(new String[0]); }
+```
+
+### 内联翻译 vs 方法翻译
+```java
+@ExcelColumn(translate = {"0:否", "1:是"})          // 简单映射
+private Integer enabled;
+
+@ExcelTranslateMethod(columnName = "level")          // 复杂映射，返回 Function
+public Function<Object,Object> levelTranslate() { return v -> LEVELS.getOrDefault(v, "未知"); }
+```
+
+### 导入自定义校验（编程式）
+通过手动列 `ExcelModel` 设置校验器，导入时逐行调用：
+```java
+ExcelModel age = ExcelModel.of("age");
+age.setExcelCustomValidate(new ExcelCustomValidate<Row>() {
+    public boolean validate(ExcelRowData<Row> d) { return ((Integer) d.currentValue()) >= 0; }
+    public String errorMessage() { return "年龄不能为负"; }
+});
+List<Row> rows = ExcelUtil.importExcel(in, Row.class, ExcelModel.of("name"), age);
+```
+> 注意：注解 `@ExcelCustomValidateMethod` 目前**只被收集、未自动装配**，自定义校验请用上面的编程式 `ExcelModel.setExcelCustomValidate(...)`。
+
+### 公式列
+公式用 `@Column(列名)` 引用其它列（按列标题匹配），框架在每个数据行展开为该列的 Excel 列号 + 行号：
+```java
+@ExcelColumn(columnName = "合计", index = 4)
+@ExcelFormula(formula = "@Column(单价)*@Column(数量)")   // 每个数据行写入：如 B2*C2、B3*C3 ...
+private String total;
+```
+
+---
+
+## 12. 模板填充 ExcelTemplateFiller
+
+对已有模板做 `${占位符}` 替换（不依赖注解）：
+
+```java
+ExcelTemplateFiller.of(templateInputStream)          // of(InputStream) / of(byte[]) / of(Workbook)
+    .fill("reportDate", "2024-06-01")                // 单个占位符
+    .fillAll(Map.of("k1", v1, "k2", v2))             // 批量
+    .fillBean(reportHeader)                          // 用 Bean 的字段填充同名占位符
+    .fillList("list", rowsAsMaps)                    // 列表区：${list.no} ${list.name}
+    .fillListBeans("list", rowBeans)                 // 列表区（POJO）
+    .writeTo(response.getOutputStream());            // 或 .toBytes()
+```
+
+模板里：标量占位 `${reportDate}`；列表占位 `${list.no}`、`${list.name}`（同一行作为模板行，按列表展开）。
+
+---
+
+## 13. 类型化写值规则
+
+导出时 `setCellValue` 按运行时类型写入：
+
+| 值类型 | 写法 |
+|--------|------|
+| `Number`（含包装类、BigDecimal） | 数值单元格（可排序/求和） |
+| `Boolean` | 布尔单元格 |
+| `Date`/`Calendar`/`LocalDate`/`LocalDateTime` | **类型化日期单元格** + 日期格式样式（`@ExcelDateFormat` 的 pattern；无则按类型默认 `yyyy-MM-dd` / `yyyy-MM-dd HH:mm:ss`） |
+| `null` | 空（或列/Sheet 的 `noneCellDefaultValue`） |
+| 其他 | `toString()` 文本 |
+
+---
+
+## 14. 安全（图片下载）
+
+图片 URL 来自被导出的数据，属**不可信输入**。下载器已内建：仅允许 `http`/`https`、单图 ≤ 64 MB。
+
+数据来源不可信时，开启 SSRF 防护（默认关闭，以保留「内网取图」的合法用法）：
+
+```java
+ImageDownloadPolicy.setBlockPrivateNetworks(true);   // 应用启动时设置一次（进程级）
+```
+开启后拦截解析到环回/链路本地/站点本地/私网/组播地址的 URL，并停止跟随重定向（防 30x 跳内网绕过）。
+
+---
+
+## 15. 枚举与常量
+
+- `ExcelType`：`XLSX` / `XLS`。
+- `ExcelCreator` 常量：`XLSX`、`XLS`、`MOVE_AND_RESIZE`(0)、`DONT_MOVE_AND_RESIZE`(3)。
+- `AnchorType`：`MOVE_AND_RESIZE`(0)、`MOVE_DONT_RESIZE`(2)、`DONT_MOVE_AND_RESIZE`(3)。
+- `CellStyleEnum`：内置单元格样式枚举（用于 DIY 行/列样式）。
+
+---
+
+## 16. 限制与注意事项
+
+- **导入随机访问/图片** 用 `ExcelImportor`/注解导入（DOM）；**超大文件只读** 用 `StreamingExcelReader`（SAX，无图片/随机访问）。
+- `autoSizeColumns` 为**抽样估算**（最多采样 1000 行 + 字符宽启发式，CJK 记 2 宽），非像素级；大数据流式模式下仅能看到 SXSSF 窗口内的行，精确控制请显式 `columnWidth`。
+- `LocalTime` 暂不做类型化（按文本写）。
+- 流式 `readAsBeans` 按 `@ExcelColumn` **位置**或**表头名**绑定，扩展名缺失的图片 URL 退化为 JPEG。
+- 构建/Javadoc 对**含非 ASCII 字符的工程路径**敏感（已在 pom 用 UTF-8 兜底，仍建议纯英文路径）。
+- 列字段值通过 getter 反射读取（已用 LambdaMetafactory 缓存加速），行对象需提供对应 getter。
+- `@ExcelCustomValidateMethod` 注解当前未自动装配，自定义校验请用编程式 `ExcelModel.setExcelCustomValidate(...)`。
