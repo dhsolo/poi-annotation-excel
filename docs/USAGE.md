@@ -127,7 +127,10 @@ List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportMo
 - `@ExcelRow.cells`：`@ExcelCell[]`，逐格指定内容（`value` 字面量 / `field` 取字段值，二选一）。
 
 ### `@ExcelInfoChild`（字段）
-把嵌套子对象的 `@ExcelColumn` 列**拍平**进父 Sheet。子列按各自 `@ExcelColumn.index()` 与父列**统一排序**；导出时通过路径 `父字段名.子字段名` 读取行对象上的嵌套值（即行对象需有 `get父字段().get子字段()`）。子列支持 `columnName/index/translate/日期格式/图片/公式`；级联与方法级下拉/翻译暂不适用于子列。仅导出。
+把嵌套子对象的 `@ExcelColumn` 列**拍平**进父 Sheet。子列按各自 `@ExcelColumn.index()` 与父列**统一排序**。
+- **导出**：通过路径 `父字段名.子字段名` 读取行对象上的嵌套值（行对象需有 `get父字段().get子字段()`）。
+- **导入**：自动重建嵌套对象并填充（父字段类型需有无参构造器，子字段需 setter）。
+- 子列支持 `columnName/index/translate/日期格式/图片/公式`；级联与方法级下拉/翻译不适用于子列；父子字段名不可重名。
 
 ```java
 @ExcelInfo(sheetName = "订单")
@@ -500,4 +503,4 @@ ImageDownloadPolicy.setBlockPrivateNetworks(true);   // 应用启动时设置一
 - 流式 `readAsBeans` 按 `@ExcelColumn` **位置**或**表头名**绑定，扩展名缺失的图片 URL 退化为 JPEG。
 - 构建/Javadoc 对**含非 ASCII 字符的工程路径**敏感（已在 pom 用 UTF-8 兜底，仍建议纯英文路径）。
 - 列字段值通过 getter 反射读取（已用 LambdaMetafactory 缓存加速），行对象需提供对应 getter；导入目标类需对应 setter。
-- `@ExcelColumnParent` 注解**已定义但当前未实现**（不要依赖）。`@ExcelInfoChild` 仅支持导出方向。
+- `@ExcelColumnParent` 注解**已定义但当前未实现**（不要依赖）。

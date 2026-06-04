@@ -52,6 +52,48 @@ class ExcelInfoChildTest {
         }
     }
 
+    @Test
+    void importPopulatesNestedChildObject() throws Exception {
+        byte[] bytes = ExcelUtil.toBytes(new OrderModel().setData(List.of(
+                new OrderRow("A001", new Customer("张三", "10086")))));
+
+        // Import the flat sheet back into a model whose @ExcelInfoChild rebuilds the nested object.
+        List<OrderImport> rows = ExcelUtil.importExcel(new ByteArrayInputStream(bytes), 0, 1, OrderImport.class);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getOrderNo()).isEqualTo("A001");
+        assertThat(rows.get(0).getCustomer()).isNotNull();
+        assertThat(rows.get(0).getCustomer().getName()).isEqualTo("张三");
+        assertThat(rows.get(0).getCustomer().getPhone()).isEqualTo("10086");
+    }
+
+    @ExcelInfo(sheetName = "order")
+    public static class OrderImport {
+        @ExcelColumn(columnName = "订单号", index = 1)
+        private String orderNo;
+
+        @ExcelInfoChild
+        private CustomerImport customer;
+
+        public String getOrderNo() { return orderNo; }
+        public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
+        public CustomerImport getCustomer() { return customer; }
+        public void setCustomer(CustomerImport customer) { this.customer = customer; }
+    }
+
+    public static class CustomerImport {
+        @ExcelColumn(columnName = "客户名", index = 2)
+        private String name;
+
+        @ExcelColumn(columnName = "电话", index = 3)
+        private String phone;
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getPhone() { return phone; }
+        public void setPhone(String phone) { this.phone = phone; }
+    }
+
     @ExcelInfo(sheetName = "order", isBigData = false)
     public static class OrderModel {
         @ExcelData

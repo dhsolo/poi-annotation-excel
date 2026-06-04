@@ -7,8 +7,9 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
-- `@ExcelInfoChild` is now implemented for export: a nested object's `@ExcelColumn` columns are
-  flattened into the parent sheet, ordered together with the parent columns by `index()`.
+- `@ExcelInfoChild` is now implemented for both export and import: a nested object's
+  `@ExcelColumn` columns are flattened into the parent sheet (ordered with the parent columns by
+  `index()`); on import the nested object is rebuilt and populated via path.
 - Low-memory streaming `.xlsx` import via `StreamingExcelReader` (SAX): `read`,
   `readAsMaps`, and `readAsBeans` (bind by `@ExcelColumn` position or by header name),
   with leading-row skipping and numeric/boolean/`BigDecimal`/date-time conversion.

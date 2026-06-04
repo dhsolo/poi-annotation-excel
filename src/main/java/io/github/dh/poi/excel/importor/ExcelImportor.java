@@ -482,6 +482,46 @@ public class ExcelImportor {
 	/**
 	 * Retrieves a value from the map by key.
 	 */
+	private void setByPath(Object bean, String path, Map<String, Object> map, String valueKey) {
+		String[] parts = path.split("\\.");
+		Object cur = bean;
+		for (int i = 0; i < parts.length - 1; i++) {
+			Field pf = Reflect.findField(cur.getClass(), parts[i]);
+			if (pf == null) return;
+			Object next = Reflect.getField(pf, cur);
+			if (next == null) {
+				try {
+					next = pf.getType().getDeclaredConstructor().newInstance();
+				} catch (Exception e) {
+					logger.debug("Cannot instantiate nested field {} on {}", parts[i], cur.getClass().getName());
+					return;
+				}
+				setProp(cur, parts[i], pf, next);
+			}
+			cur = next;
+		}
+		String leaf = parts[parts.length - 1];
+		Field lf = Reflect.findField(cur.getClass(), leaf);
+		if (lf == null) return;
+		Object value = getFromMap(map, valueKey, lf.getType());
+		if (value != null) setProp(cur, leaf, lf, value);
+	}
+
+	private void setProp(Object owner, String name, Field field, Object value) {
+		String setter = "set" + Character.toUpperCase(name.charAt(0)) + name.substring(1);
+		Method m = Reflect.findMethod(owner.getClass(), setter, field.getType());
+		try {
+			if (m != null) {
+				m.invoke(owner, value);
+			} else {
+				field.setAccessible(true);
+				field.set(owner, value);
+			}
+		} catch (Exception e) {
+			logger.debug("Failed to set {} on {}", name, owner.getClass().getName());
+		}
+	}
+
 	private Object getFromMap(Map<?, ?> map, Object key, Class type) {
 		Object value = null;
 		Set<?> keys = map.keySet();
@@ -632,6 +672,12 @@ public class ExcelImportor {
 					LinkedList<ExcelModel> listModels = columnNameList.get(sheetNum);
 					for (ExcelModel excelModel : listModels) {
 						String field = excelModel.getFieldName();
+						String sourcePath = excelModel.getSourcePath();
+						// Flattened @ExcelInfoChild column: set the value on the nested object via path.
+						if (sourcePath != null && sourcePath.contains(".")) {
+							setByPath(t, sourcePath, map, field);
+							continue;
+						}
 						Field javaField =Reflect.findField(clazz,field) ;//clazz.getDeclaredField(field);
 						String setMethod = "set" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
 						if(javaField!=null){
