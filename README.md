@@ -271,6 +271,29 @@ EasyExcel has no equivalent; building it manually with raw POI takes hundreds of
 
 ---
 
+## Security — image downloads
+
+Image export fetches the URLs found in your data. Those URLs are **untrusted input**. The
+downloader already:
+
+- accepts only `http`/`https` URLs;
+- caps each response at 64 MB.
+
+If the data may come from untrusted sources, also enable the **SSRF guard**, which rejects URLs
+resolving to loopback / link-local / site-local / private / multicast addresses (and stops
+following redirects, so a `30x` to an internal host cannot bypass the check):
+
+```java
+// Enable once at application startup (process-wide). Off by default so that intentional
+// internal-host image URLs keep working unless you opt in.
+ImageDownloadPolicy.setBlockPrivateNetworks(true);
+```
+
+It is **off by default** to preserve the common case of loading images from internal hosts;
+turn it on when exporting data whose image URLs you do not control.
+
+---
+
 ## Building
 
 ```bash
