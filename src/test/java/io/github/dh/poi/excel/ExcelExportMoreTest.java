@@ -56,6 +56,27 @@ class ExcelExportMoreTest {
     }
 
     @Test
+    void exportsMultipleSheets() throws Exception {
+        byte[] bytes = ExcelUtil.toBytes(
+                ExcelCreatorBuilder.create("甲表").data(List.of(mapOf("name", "a"))).columns("名称:name").bigData(false),
+                ExcelCreatorBuilder.create("乙表").data(List.of(mapOf("val", "b"))).columns("值:val").bigData(false));
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            // Both data sheets exist in one workbook (plus a hidden listConstantData helper sheet).
+            assertThat(wb.getSheet("甲表")).isNotNull();
+            assertThat(wb.getSheet("甲表").getRow(1).getCell(0).getStringCellValue()).isEqualTo("a");
+            assertThat(wb.getSheet("乙表")).isNotNull();
+            assertThat(wb.getSheet("乙表").getRow(1).getCell(0).getStringCellValue()).isEqualTo("b");
+        }
+    }
+
+    private static Map<String, Object> mapOf(String k, Object v) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put(k, v);
+        return m;
+    }
+
+    @Test
     void exportsValueViaSourceField() throws Exception {
         byte[] bytes = ExcelUtil.toBytes(new RedirectModel().setData(List.of(new Src("ok-value"))));
         try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {

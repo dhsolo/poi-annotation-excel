@@ -957,7 +957,13 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     private void defaultCellStyle() {
-        if (styleManager != null) styleManager.initDefaultStyles();
+        // Rebuild the style manager against the CURRENT workbook. This matters when a child
+        // creator is stitched into a parent's workbook (multi-sheet): cell styles belong to a
+        // specific workbook, so styles created against the child's original book cannot be used
+        // in the parent's book ("Style does not belong to the supplied Workbook").
+        styleManager = new DefaultCellStyleManager(book);
+        styleManager.initDefaultStyles();
+        dateStyleCache.clear(); // date styles cached against the previous workbook are now invalid
     }
 
     // ==================== Export ====================

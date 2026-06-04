@@ -25,6 +25,7 @@ import io.github.dh.poi.excel.core.ExcelCascadeAble;
 import io.github.dh.poi.excel.exception.ExcelAnnotationException;
 import io.github.dh.poi.excel.exception.ExcelPropertyException;
 import io.github.dh.poi.excel.exception.ExcelReturnTypeException;
+import io.github.dh.poi.excel.validation.ExcelCustomValidate;
 import io.github.dh.common.Reflect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -293,6 +294,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             applyExcelListBoxMethod(fieldName, excelModel, excelModelMap);
             applyExcelDateFormat(column, excelModel);
             applyExcelTranslateMethod(fieldName, excelModel);
+            applyExcelCustomValidateMethod(fieldName, excelModel);
             applyExcelFormula(column, excelModel);
 
             if (column.getAnnotation(ExcelData.class) != null) {
@@ -443,6 +445,24 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
     }
 
     @SuppressWarnings("unchecked")
+    private void applyExcelCustomValidateMethod(String fieldName, ExcelModel excelModel) {
+        if (customValidateMethods.isEmpty()) return;
+        for (Method method : customValidateMethods) {
+            if (!method.getAnnotation(ExcelCustomValidateMethod.class).columnName().equals(fieldName)) continue;
+            if (!ExcelCustomValidate.class.isAssignableFrom(method.getReturnType())) {
+                throw new ExcelReturnTypeException(
+                        "Methods annotated with @ExcelCustomValidateMethod must return ExcelCustomValidate");
+            }
+            try {
+                excelModel.setExcelCustomValidate((ExcelCustomValidate) Reflect.invokeMethod(method, excelInfo));
+            } catch (ClassCastException e) {
+                throw new ExcelReturnTypeException(
+                        "Methods annotated with @ExcelCustomValidateMethod must return ExcelCustomValidate");
+            }
+            break;
+        }
+    }
+
     private void applyExcelTranslateMethod(String fieldName, ExcelModel excelModel) {
         if (translateMethods.isEmpty()) return;
         Method matched = null;
