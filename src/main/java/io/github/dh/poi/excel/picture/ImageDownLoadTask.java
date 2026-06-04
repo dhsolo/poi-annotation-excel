@@ -30,6 +30,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.Arrays;
@@ -165,7 +166,13 @@ public class ImageDownLoadTask implements Runnable {
             if (!"http".equalsIgnoreCase(protocol) && !"https".equalsIgnoreCase(protocol)) {
                 throw new IOException("Unsupported image URL protocol: " + protocol);
             }
+            ImageDownloadPolicy.assertAllowed(imgUrl);
             URLConnection conn = imgUrl.openConnection();
+            // In secure mode, do not auto-follow redirects: a 30x to an internal host would
+            // otherwise bypass the private-network check performed above.
+            if (conn instanceof HttpURLConnection httpConn && ImageDownloadPolicy.isBlockPrivateNetworks()) {
+                httpConn.setInstanceFollowRedirects(false);
+            }
             conn.setConnectTimeout(imageReadTimeOut);
             conn.setReadTimeout(imageReadTimeOut);
             long declaredLength = conn.getContentLengthLong();

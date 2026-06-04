@@ -24,6 +24,8 @@ All notable changes to this project are documented here. The format is based on
   per-cell font metrics (faster; no longer throws on streaming sheets).
 
 ### Fixed
+- Numeric and boolean cell values are now written with their native cell type instead of as
+  text (previously every value was stored as a string, breaking sorting/aggregation).
 - Image-heavy top-level sheets now use the memory-safe disk-staging path (previously a
   gating bug forced in-memory image embedding).
 - Windows file-lock failure when injecting images into the temporary workbook ZIP.
@@ -32,3 +34,5 @@ All notable changes to this project are documented here. The format is based on
 ### Security
 - Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).
 - Remote image downloads are restricted to http/https and capped in size.
+- Opt-in SSRF guard (`ImageDownloadPolicy.setBlockPrivateNetworks(true)`) rejects image URLs
+  resolving to loopback/link-local/site-local/private addresses (off by default).

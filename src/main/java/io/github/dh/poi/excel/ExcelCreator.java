@@ -314,7 +314,16 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         if (cell == null) return;
         if (value == null) { cell.setCellValue(""); return; }
         try {
-            cell.setCellValue(value.toString());
+            // Write numbers and booleans with their native cell type so Excel can sort/aggregate
+            // them (rather than storing every value as text). Dates are kept as text here because
+            // a typed date needs a date-formatted cell style to display correctly.
+            if (value instanceof Number number) {
+                cell.setCellValue(number.doubleValue());
+            } else if (value instanceof Boolean bool) {
+                cell.setCellValue(bool);
+            } else {
+                cell.setCellValue(value.toString());
+            }
         } catch (Exception e) {
             logger.error("Error setting cell value: {}", value, e);
             cell.setCellValue("ERROR");
