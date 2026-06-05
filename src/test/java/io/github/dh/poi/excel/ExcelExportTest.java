@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,6 +89,62 @@ class ExcelExportTest {
             assertThat(dateCell.getCellType()).isEqualTo(CellType.NUMERIC);
             assertThat(DateUtil.isCellDateFormatted(dateCell)).isTrue();
             assertThat(dateCell.getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2024, 6, 1));
+        }
+    }
+
+    @Test
+    void writesLocalTimeAsTypedTimeCell() throws Exception {
+        List<Shift> data = List.of(new Shift("早班", LocalTime.of(9, 30, 15)));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ExcelUtil.export(out, "shifts.xlsx", new ShiftModel().setData(data));
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(out.toByteArray()))) {
+            Cell timeCell = wb.getSheetAt(0).getRow(1).getCell(1);
+            assertThat(timeCell.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(DateUtil.isCellDateFormatted(timeCell)).isTrue();
+            // Stored as a fraction of a day; reads back as the same wall-clock time.
+            assertThat(timeCell.getLocalDateTimeCellValue().toLocalTime()).isEqualTo(LocalTime.of(9, 30, 15));
+        }
+    }
+
+    @ExcelInfo(sheetName = "班次", isBigData = false)
+    public static class ShiftModel {
+        @ExcelData
+        private List<Shift> data;
+
+        @ExcelColumn(columnName = "名称", index = 1)
+        private String name;
+
+        @ExcelColumn(columnName = "时间", index = 2)
+        @ExcelDateFormat(pattern = "HH:mm:ss")
+        private LocalTime time;
+
+        public ShiftModel setData(List<Shift> data) {
+            this.data = data;
+            return this;
+        }
+
+        public List<Shift> getData() {
+            return data;
+        }
+    }
+
+    public static class Shift {
+        private final String name;
+        private final LocalTime time;
+
+        public Shift(String name, LocalTime time) {
+            this.name = name;
+            this.time = time;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public LocalTime getTime() {
+            return time;
         }
     }
 

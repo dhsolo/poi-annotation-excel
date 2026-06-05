@@ -379,10 +379,14 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         return value instanceof java.util.Date
                 || value instanceof java.util.Calendar
                 || value instanceof java.time.LocalDate
-                || value instanceof java.time.LocalDateTime;
+                || value instanceof java.time.LocalDateTime
+                || value instanceof java.time.LocalTime;
     }
 
     private static String defaultDatePattern(Object value) {
+        if (value instanceof java.time.LocalTime) {
+            return "HH:mm:ss";
+        }
         return (value instanceof java.time.LocalDate || value instanceof java.sql.Date)
                 ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm:ss";
     }
@@ -403,6 +407,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             cell.setCellValue(ld);
         } else if (value instanceof java.time.LocalDateTime ldt) {
             cell.setCellValue(ldt);
+        } else if (value instanceof java.time.LocalTime lt) {
+            // POI has no LocalTime overload; a time-of-day is stored as a fraction of a 24h day.
+            cell.setCellValue(lt.toNanoOfDay() / 86_400_000_000_000.0);
         } else {
             cell.setCellValue(value.toString());
         }
