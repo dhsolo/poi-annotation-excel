@@ -1519,14 +1519,19 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         }
     }
 
-    /** Reads a cell's value as display text, tolerating any cell type. */
-    private static String cellText(Cell cell) {
+    /** Reads a cell's value as display text, tolerating any cell type. (package-visible for tests) */
+    static String cellText(Cell cell) {
         try {
-            return switch (cell.getCellType()) {
+            CellType type = cell.getCellType();
+            // For a formula, estimate from its cached computed result, not the formula text
+            // (a long expression like SUM(A1:A100) would otherwise grossly over-widen the column).
+            if (type == CellType.FORMULA) {
+                type = cell.getCachedFormulaResultType();
+            }
+            return switch (type) {
                 case STRING -> cell.getStringCellValue();
                 case NUMERIC -> String.valueOf(cell.getNumericCellValue());
                 case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-                case FORMULA -> cell.getCellFormula();
                 default -> "";
             };
         } catch (Exception e) {

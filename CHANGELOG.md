@@ -30,7 +30,9 @@ All notable changes to this project are documented here. The format is based on
 - Cell value reads compile getters via `LambdaMetafactory` (cached), and the per-column
   resolver is selected once per column instead of per cell.
 - `autoSizeColumns(true)` now estimates widths from a bounded row sample instead of POI's
-  per-cell font metrics (faster; no longer throws on streaming sheets).
+  per-cell font metrics (faster; no longer throws on streaming sheets). Formula columns are
+  measured by their cached computed result rather than the formula expression text, so a long
+  formula (e.g. `SUM(A1:A100)`) no longer over-widens its column.
 
 ### Fixed
 - Large integers (`Long`/`BigInteger` beyond 2^53) and high-precision `BigDecimal` are written as
