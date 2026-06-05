@@ -32,7 +32,7 @@ import java.util.List;
  * model object (annotated with {@code @ExcelInfo} and {@code @ExcelColumn}) so that the
  * framework can derive column metadata via the standard annotation-processing path.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ComplexExcelModel {

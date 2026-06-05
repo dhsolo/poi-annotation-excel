@@ -40,7 +40,7 @@ import java.lang.annotation.Target;
  * private Object salesGroup;   // anchor field; values come from sourceField on the row object
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target(ElementType.FIELD)

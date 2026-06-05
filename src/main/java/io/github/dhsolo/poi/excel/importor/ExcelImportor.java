@@ -46,7 +46,7 @@ import io.github.dhsolo.common.Reflect;
 /**
  * Excel import utility class.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @SuppressWarnings({ "rawtypes", "unchecked" })

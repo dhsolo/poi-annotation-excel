@@ -27,7 +27,7 @@ package io.github.dhsolo.poi.excel.exception;
  * as a compact JSON string of the form {@code {"code":&lt;code&gt;,"message":"&lt;msg&gt;"}}
  * to make it convenient for HTTP error responses.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelException extends RuntimeException {

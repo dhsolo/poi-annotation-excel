@@ -31,7 +31,7 @@ import java.util.Map;
  * and validation pipeline depend on this interface rather than on the raw annotations,
  * keeping them decoupled from reflection details.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ExcelAnnotationProperty {

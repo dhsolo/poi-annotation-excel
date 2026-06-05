@@ -21,7 +21,7 @@ package io.github.dhsolo.poi.excel.annotation;
  * <p>Extracts configuration from annotation-based Excel model definitions.
  * Implemented by {@link DefaultAnnotationProcessor}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface AnnotationProcessor {

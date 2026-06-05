@@ -26,7 +26,7 @@ package io.github.dhsolo.poi.excel.exception;
  *   <li>Conflicting annotation attributes are detected during pre-processing.</li>
  * </ul>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelAnnotationException extends ExcelException {

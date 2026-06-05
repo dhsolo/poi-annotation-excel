@@ -30,7 +30,7 @@ import java.util.List;
  * <p>Implementing classes typically build the cascade definition from their own field
  * metadata or from an externally injected data source.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see CascadeValidateModel
  */

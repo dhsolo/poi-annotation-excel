@@ -32,7 +32,7 @@ import org.apache.poi.ss.usermodel.Row;
  * <p>Instances of this class are reused across cells within the same import session; do not
  * retain a reference beyond the scope of a single callback invocation.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelCustomModel {

@@ -28,7 +28,7 @@ import java.util.Map;
  * <p>Handles image downloading, resizing, embedding, and temporary file management.
  * Implemented by {@link DefaultPictureHandler}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface PictureHandler {

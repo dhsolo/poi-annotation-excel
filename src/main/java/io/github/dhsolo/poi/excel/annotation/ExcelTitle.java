@@ -36,7 +36,7 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target({ElementType.FIELD, ElementType.METHOD})

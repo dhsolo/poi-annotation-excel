@@ -87,7 +87,7 @@ import java.util.stream.Collectors;
  * creator.export(outputStream, "report.xlsx");
  * </pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see ExcelCreatorBuilder
  * @see CellValueSetter

@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Handles dropdown lists, cascade validation, formula validation, etc.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DefaultDataValidator implements DataValidator {

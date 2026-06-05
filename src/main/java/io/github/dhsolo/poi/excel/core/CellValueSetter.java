@@ -32,7 +32,7 @@ import org.apache.poi.ss.usermodel.Cell;
  * cell-value types ({@link String}, {@link Number}, {@link java.util.Date}, {@link Boolean}).
  * Custom type coercion can be achieved by wrapping or replacing this implementation.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface CellValueSetter {

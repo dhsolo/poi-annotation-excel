@@ -26,7 +26,7 @@ import org.apache.poi.ss.usermodel.CellStyle;
  *
  * <p>Implemented by {@link DefaultCellStyleManager}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface CellStyleManager {

@@ -24,7 +24,7 @@ import io.github.dhsolo.common.Reflect;
  * <p>Supports {@code @ExcelColumn(sourcePath)} and {@code @ExcelColumn(sourceField)} path-based
  * value extraction via the inherited default {@link CellValueResolver#resolveSourceValue} implementation.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class PlainCellResolver implements CellValueResolver {

@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat;
  * <p>This class provides lightweight helpers for null/blank checks and date formatting
  * that intentionally avoid pulling in heavyweight third-party libraries.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class CommonUtil {

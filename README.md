@@ -39,7 +39,7 @@ The key differentiator is **multi-level cascade dropdown validation** — a feat
 
 ```xml
 <dependency>
-    <groupId>io.github.daihu</groupId>
+    <groupId>io.github.dhsolo</groupId>
     <artifactId>poi-annotation-excel</artifactId>
     <version>1.0.0</version>
 </dependency>

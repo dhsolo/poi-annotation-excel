@@ -40,7 +40,7 @@ import java.util.function.Function;
  *     .build();
  * </pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class CascadeValidateModelBuilder {

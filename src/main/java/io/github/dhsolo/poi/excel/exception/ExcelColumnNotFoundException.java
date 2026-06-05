@@ -24,7 +24,7 @@ package io.github.dhsolo.poi.excel.exception;
  * impossible to populate the corresponding model field. During export, the same exception
  * may be raised if the column definition references a non-existent column index or name.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelColumnNotFoundException extends ExcelException {

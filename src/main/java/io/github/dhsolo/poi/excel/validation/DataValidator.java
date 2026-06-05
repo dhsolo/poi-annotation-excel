@@ -25,7 +25,7 @@ import java.util.Map;
  * <p>Handles dropdown lists, cascade validation, formula validation, etc.
  * Implemented by {@link DefaultDataValidator}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface DataValidator {

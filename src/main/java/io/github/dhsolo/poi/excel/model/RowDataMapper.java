@@ -39,7 +39,7 @@ import io.github.dhsolo.poi.excel.core.CellValueSetter;
  * }</pre>
  *
  * @param <T> the type of the domain object bound to each row
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see ExcelCreator
  */

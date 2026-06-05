@@ -36,7 +36,7 @@ import java.lang.reflect.Method;
  *
  * <p>Used by {@link BigDataWorkbookStrategy}.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see BusinessSXSSFSheet
  * @see BusinessXSSFWorkbook

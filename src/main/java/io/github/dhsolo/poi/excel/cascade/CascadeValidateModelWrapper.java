@@ -27,7 +27,7 @@ import java.util.List;
  * {@link CascadeValidateItemWrapper} options, an optional reference to the parent item
  * that activates this node, and flags that control validation behaviour.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public  class CascadeValidateModelWrapper {

@@ -27,7 +27,7 @@ import java.io.OutputStream;
  *
  * <p>Implemented by {@link DefaultExcelExporter}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ExcelExporter {

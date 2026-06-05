@@ -23,7 +23,7 @@ import io.github.dhsolo.common.Reflect;
  * Corresponds to {@code @ExcelTranslateMethod}-driven translation methods and has higher priority
  * than all built-in resolvers.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class HandlerCellResolver implements CellValueResolver {

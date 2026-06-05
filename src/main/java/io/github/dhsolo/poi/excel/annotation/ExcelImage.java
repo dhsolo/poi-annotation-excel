@@ -35,7 +35,7 @@ import java.lang.annotation.Target;
  * private String photoUrl;
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target({ElementType.FIELD})

@@ -48,7 +48,7 @@ import java.util.List;
  *
  * <p>This class is package-private; callers interact with the framework through {@link ExcelCreator}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 class ExcelCreatePipeline {

@@ -47,7 +47,7 @@ import java.io.InputStream;
  * </pre>
  *
  * @param <R> the type of result returned after a successful upload
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @FunctionalInterface

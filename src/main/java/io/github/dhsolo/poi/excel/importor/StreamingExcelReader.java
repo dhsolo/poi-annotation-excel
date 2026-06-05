@@ -66,7 +66,7 @@ import java.util.Map;
  * <p>The existing {@link ExcelImportor} is unchanged; use this class when memory matters more
  * than the richer feature set.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public final class StreamingExcelReader {

@@ -25,7 +25,7 @@ import org.apache.poi.ss.usermodel.Workbook;
  * in heap memory, this strategy is unsuitable for very large data sets. It is limited to
  * 65,535 rows per sheet as per the XLS specification.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class XlsWorkbookStrategy implements WorkbookStrategy {

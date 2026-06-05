@@ -24,7 +24,7 @@ package io.github.dhsolo.poi.excel.exception;
  * solely for binary and source compatibility with existing callers; new code should
  * throw and catch {@link ExcelException} or one of its specific subclasses instead.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @deprecated Use {@link ExcelException} or a specific subclass instead.
  *             This class will be removed in a future major release.

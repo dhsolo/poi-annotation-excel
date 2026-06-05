@@ -24,7 +24,7 @@ package io.github.dhsolo.poi.excel.picture;
  * {@code DONT_MOVE_AND_RESIZE = 3}) so that the framework can pass them through to
  * the underlying POI API without additional translation.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see org.apache.poi.ss.usermodel.ClientAnchor.AnchorType
  */

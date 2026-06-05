@@ -34,7 +34,7 @@ import java.lang.annotation.Target;
  * private BigDecimal total;
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target({ElementType.FIELD})

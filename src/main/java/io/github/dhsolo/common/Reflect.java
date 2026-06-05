@@ -32,7 +32,7 @@ import java.util.function.Consumer;
  * <p>This class is {@code final} and has a private constructor; it is not meant to
  * be instantiated or subclassed.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public final class Reflect {

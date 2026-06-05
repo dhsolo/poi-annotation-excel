@@ -28,7 +28,7 @@ import java.io.*;
  * <p>Exports Excel workbooks to output streams, local files, or input streams.
  * Supports zip-compressed temporary files when pictures are included.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DefaultExcelExporter implements ExcelExporter {

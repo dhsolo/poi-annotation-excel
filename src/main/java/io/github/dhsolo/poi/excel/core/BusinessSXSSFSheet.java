@@ -35,7 +35,7 @@ import java.io.IOException;
  *
  * <p>Instances are created exclusively by {@link BusinessSXSSFWorkbook}.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see BusinessSXSSFWorkbook
  */

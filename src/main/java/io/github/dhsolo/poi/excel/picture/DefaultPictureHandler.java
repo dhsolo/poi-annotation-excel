@@ -42,7 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Handles image downloading, resizing, embedding, and temporary file management.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DefaultPictureHandler implements PictureHandler {

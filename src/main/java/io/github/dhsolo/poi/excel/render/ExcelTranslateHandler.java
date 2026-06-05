@@ -34,7 +34,7 @@ import io.github.dhsolo.poi.excel.model.ExcelRowData;
  * <p>Both methods have default implementations so that implementors only need to
  * override the methods relevant to their use-case.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ExcelTranslateHandler {

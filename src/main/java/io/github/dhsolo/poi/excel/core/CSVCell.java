@@ -39,7 +39,7 @@ import java.util.Date;
  * no-ops or return safe default values, enabling the import pipeline to call any
  * {@link Cell} method without special-casing the CSV code path.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see CSVRow
  */

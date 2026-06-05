@@ -29,7 +29,7 @@ import io.github.dhsolo.poi.excel.model.DiyRowContextCellModel;
  * to {@link #customStyle} and supply the {@link org.apache.poi.ss.usermodel.CellStyle} directly via
  * {@link DiyRowContextCellModel#setCustomCellStyle(org.apache.poi.ss.usermodel.CellStyle)}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public enum CellStyleEnum {

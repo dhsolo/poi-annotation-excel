@@ -29,7 +29,7 @@ import io.github.dhsolo.poi.excel.exception.ExcelReflectionException;
  * default method {@link #getValueByPath(String, Object)} builds on top of this to support
  * dot-separated property paths for nested objects.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ValueExtractor {

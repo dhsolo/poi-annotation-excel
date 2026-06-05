@@ -25,7 +25,7 @@ import org.apache.poi.ss.usermodel.Workbook;
  * support. The entire workbook is kept in heap memory, so this strategy is best suited for
  * moderate-sized exports; use {@link BigDataWorkbookStrategy} for large data sets.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class XlsxWorkbookStrategy implements WorkbookStrategy {

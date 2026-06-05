@@ -37,7 +37,7 @@ import java.util.Map;
  * should not instantiate them directly.
  *
  * @param <T> the type of the domain object associated with the current row
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ExcelRowData<T> {

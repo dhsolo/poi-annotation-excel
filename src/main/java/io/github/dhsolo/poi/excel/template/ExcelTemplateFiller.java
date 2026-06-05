@@ -51,7 +51,7 @@ import java.util.regex.Pattern;
  *     .writeTo(outputStream);
  * </pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelTemplateFiller {

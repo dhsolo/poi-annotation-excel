@@ -21,7 +21,7 @@ import io.github.dhsolo.poi.excel.ExcelModel;
  * Strategy interface for cell value resolution.
  * Strategy pattern: decouples different cell value population logic into independent strategy implementations.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface CellValueResolver {

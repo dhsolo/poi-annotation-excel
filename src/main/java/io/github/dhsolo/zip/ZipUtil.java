@@ -40,7 +40,7 @@ import java.util.zip.ZipEntry;
  * <p>Provides direct file injection into existing ZIP archives without
  * full extraction and re-compression.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ZipUtil {

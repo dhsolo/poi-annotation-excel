@@ -25,7 +25,7 @@ import org.apache.poi.ss.usermodel.Workbook;
  * depends only on this interface, allowing the concrete format to be swapped at runtime
  * without changing downstream code.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface WorkbookStrategy {

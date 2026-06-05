@@ -25,7 +25,7 @@ package io.github.dhsolo.poi.excel.exception;
  * and {@link InstantiationException} so that callers receive a consistent, unchecked
  * exception from the Excel layer regardless of the underlying reflection API failure.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelReflectionException extends ExcelException {

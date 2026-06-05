@@ -32,7 +32,7 @@ import java.net.UnknownHostException;
  *
  * <p>This is a process-wide policy; set it once at startup.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public final class ImageDownloadPolicy {

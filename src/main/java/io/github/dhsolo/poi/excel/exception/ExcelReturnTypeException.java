@@ -28,7 +28,7 @@ package io.github.dhsolo.poi.excel.exception;
  *       a scalar value.</li>
  * </ul>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelReturnTypeException extends ExcelException {

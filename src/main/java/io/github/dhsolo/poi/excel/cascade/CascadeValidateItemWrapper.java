@@ -30,7 +30,7 @@ import java.util.List;
  *   <li>the child {@link CascadeValidateModelWrapper} nodes activated when this item is selected.</li>
  * </ul>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class CascadeValidateItemWrapper {

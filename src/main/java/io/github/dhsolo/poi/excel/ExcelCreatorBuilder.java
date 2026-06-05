@@ -39,7 +39,7 @@ import java.util.Map;
  *     .build();
  * </pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see ExcelCreator
  */

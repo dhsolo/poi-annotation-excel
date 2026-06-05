@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  * Default implementation of {@link AnnotationProcessor} that processes
  * Excel annotations on model classes via Java reflection.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DefaultAnnotationProcessor implements AnnotationProcessor {

@@ -48,7 +48,7 @@ import org.apache.poi.ss.usermodel.Sheet;
  *                             any extra cells created by multi-picture expansion
  * @param pictureHandler       handler responsible for downloading and embedding images;
  *                             may be a no-op implementation when no picture columns are present
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public record CellResolveContext(

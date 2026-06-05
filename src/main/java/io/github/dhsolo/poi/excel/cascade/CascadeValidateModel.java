@@ -27,7 +27,7 @@ import java.util.List;
  *
  * <p>Instances are typically constructed via {@link CascadeValidateModelBuilder}.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class CascadeValidateModel {

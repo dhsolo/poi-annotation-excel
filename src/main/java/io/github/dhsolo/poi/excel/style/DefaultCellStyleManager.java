@@ -23,7 +23,7 @@ import org.apache.poi.ss.usermodel.*;;
  * <p>Creates and manages title, header, and data cell styles for Excel workbooks.
  * Styles are initialized with Song typeface and centered alignment with borders.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DefaultCellStyleManager implements CellStyleManager {

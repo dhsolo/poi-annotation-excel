@@ -33,7 +33,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
  * <p>Used directly by {@link XlsxWorkbookStrategy} and as the underlying XSSF workbook
  * wrapped by {@link BusinessSXSSFWorkbook} in big-data mode.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class BusinessXSSFWorkbook extends XSSFWorkbook {

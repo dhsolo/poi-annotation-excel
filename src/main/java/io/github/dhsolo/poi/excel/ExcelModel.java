@@ -28,7 +28,7 @@ import java.util.function.Function;
  * Describes a column mapping for Excel generation, including field name,
  * translation rules, image handling, and date formatting.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelModel implements ExcelTranslateHandler, Serializable {

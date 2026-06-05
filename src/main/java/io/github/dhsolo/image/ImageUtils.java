@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  *       into cells to honour column/row dimension constraints.</li>
  * </ul>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ImageUtils {

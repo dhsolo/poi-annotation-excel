@@ -74,7 +74,7 @@ import java.util.function.Consumer;
  *     ExcelUtil.importExcelToMap(inputStream, ExcelModel.of("col1"), ExcelModel.of("col2"));
  * </pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelUtil {

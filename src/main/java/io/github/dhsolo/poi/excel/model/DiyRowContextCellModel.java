@@ -39,7 +39,7 @@ import org.apache.poi.ss.usermodel.CellStyle;
  * {@link #setEndColumn(int)} to the first and last (inclusive) column indices; the
  * framework will merge the cells automatically.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class DiyRowContextCellModel {

@@ -30,7 +30,7 @@ import org.apache.poi.xssf.usermodel.XSSFRelation;
  * pre-created relationship part name is what allows downloaded images to be injected straight
  * into the ZIP without POI re-processing them.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public enum PictureFormat {

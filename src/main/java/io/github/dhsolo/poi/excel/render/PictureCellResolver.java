@@ -22,7 +22,7 @@ import io.github.dhsolo.poi.excel.picture.PictureHandler;
 /**
  * Picture resolver: handles downloading picture URLs, embedding them, and expanding multi-picture columns.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class PictureCellResolver implements CellValueResolver {

@@ -33,7 +33,7 @@ import java.util.List;
  * <p>Methods that have no meaningful equivalent in the CSV model (row height, styles,
  * cell shifting, etc.) are no-ops or return safe default values.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see CSVSheet
  * @see CSVCell

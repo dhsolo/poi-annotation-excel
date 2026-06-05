@@ -37,7 +37,7 @@ import java.util.List;
  * They are not annotated individually because their behaviour is self-evident from the
  * CSV context.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see CSVSheet
  */

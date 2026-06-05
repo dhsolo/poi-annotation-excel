@@ -34,7 +34,7 @@ import java.lang.annotation.Target;
  * private Date createdAt;
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target({ElementType.FIELD})

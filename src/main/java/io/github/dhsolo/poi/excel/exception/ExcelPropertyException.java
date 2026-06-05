@@ -24,7 +24,7 @@ package io.github.dhsolo.poi.excel.exception;
  * match any declared field or getter on the target class, or when the field exists
  * but is inaccessible (e.g. a private field in a sealed class hierarchy).
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class ExcelPropertyException extends ExcelException {

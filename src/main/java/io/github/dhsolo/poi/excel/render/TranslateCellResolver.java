@@ -23,7 +23,7 @@ import io.github.dhsolo.common.Reflect;
  * <p>Value extraction is first attempted via {@link CellValueResolver#resolveSourceValue},
  * supporting {@code @ExcelColumn(sourcePath)} path traversal and {@code sourceField} field redirection.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public class TranslateCellResolver implements CellValueResolver {

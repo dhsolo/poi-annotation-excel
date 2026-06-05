@@ -30,7 +30,7 @@ import org.apache.poi.xssf.streaming.SXSSFWorkbook;
  *
  * <p>Note: random access to already-flushed rows is not supported by the SXSSF API.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see BusinessSXSSFWorkbook
  * @see SXSSFWorkbook

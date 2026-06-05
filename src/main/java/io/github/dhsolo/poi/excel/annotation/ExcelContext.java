@@ -40,7 +40,7 @@ import java.lang.annotation.Target;
  * private String subTitle = "Generated on 2024-01-01";
  * }</pre>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 @Target({ElementType.FIELD, ElementType.METHOD})

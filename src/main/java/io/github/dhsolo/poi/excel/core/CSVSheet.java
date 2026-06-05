@@ -44,7 +44,7 @@ import java.util.List;
  * <p>Methods that have no meaningful equivalent in the CSV model (gridlines, print setup,
  * merged regions, freeze panes, etc.) are no-ops or return safe default values.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  * @see CSVWorkbook
  * @see CSVRow

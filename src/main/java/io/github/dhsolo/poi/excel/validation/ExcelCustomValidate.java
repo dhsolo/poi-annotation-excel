@@ -39,7 +39,7 @@ import io.github.dhsolo.poi.excel.model.ExcelRowData;
  * }</pre>
  *
  * @param <T> the type of the model object that each row of the Excel file is mapped to
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public interface ExcelCustomValidate<T> {

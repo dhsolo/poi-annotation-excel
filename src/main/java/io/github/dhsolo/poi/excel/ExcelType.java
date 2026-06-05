@@ -23,7 +23,7 @@ package io.github.dhsolo.poi.excel;
  * while {@code XLS} maps to {@code HSSFWorkbook} (legacy BIFF8 format, limited to 65 535 rows).
  * Choose {@code XLSX} for new files unless compatibility with Excel 97–2003 is required.
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public enum ExcelType {

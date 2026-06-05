@@ -29,7 +29,7 @@ package io.github.dhsolo.poi.excel.core;
  * <p>These values are used by context-aware hooks or renderers that need to inject content
  * at a specific structural position in the sheet.</p>
  *
- * @author dh
+ * @author dhsolo
  * @since 1.0
  */
 public enum ContextType {
