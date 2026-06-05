@@ -34,7 +34,9 @@ All notable changes to this project are documented here. The format is based on
   text on export and parsed exactly on streaming import, instead of being silently rounded through
   a `double` (e.g. 19-digit ID numbers).
 - `@ExcelColumnParent`: a non-grouped column whose header repeats an adjacent name no longer
-  triggers an overlapping-merge exception (its vertical merge is skipped).
+  triggers an overlapping-merge exception (its vertical merge is skipped); a group with
+  non-contiguous child indices now fails fast with a clear `ExcelAnnotationException` instead of
+  rendering a broken header.
 - Multi-sheet export from independently built `ExcelCreatorBuilder`/`ExcelCreator` no longer
   fails with "Style does not belong to the supplied Workbook" — child sheets rebuild their
   styles against the shared workbook.

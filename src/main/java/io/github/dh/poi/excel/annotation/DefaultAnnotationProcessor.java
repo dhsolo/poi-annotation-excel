@@ -335,6 +335,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         List<ExcelAnnotationProperty.ParentHeader> parentHeaders = new ArrayList<>();
         String curGroup = null, curLabel = null;
         int spanStart = -1, spanEnd = -1;
+        Set<String> closedGroups = new HashSet<>();
 
         for (ColumnEntry entry : entries) {
             Field column = entry.field;
@@ -411,7 +412,15 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 if (entry.groupKey.equals(curGroup)) {
                     spanEnd = endCol;
                 } else {
-                    if (curGroup != null) parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
+                    if (curGroup != null) {
+                        parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
+                        closedGroups.add(curGroup);
+                    }
+                    if (closedGroups.contains(entry.groupKey)) {
+                        throw new ExcelAnnotationException(
+                                "@ExcelColumnParent group '" + entry.parentLabel + "' has non-contiguous columns; "
+                                        + "its child columns must use consecutive @ExcelColumn index values");
+                    }
                     curGroup = entry.groupKey;
                     curLabel = entry.parentLabel;
                     spanStart = startCol;
@@ -419,6 +428,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 }
             } else if (curGroup != null) {
                 parentHeaders.add(new ExcelAnnotationProperty.ParentHeader(curLabel, spanStart, spanEnd));
+                closedGroups.add(curGroup);
                 curGroup = null;
             }
         }

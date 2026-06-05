@@ -515,5 +515,5 @@ ImageDownloadPolicy.setBlockPrivateNetworks(true);   // 应用启动时设置一
 - 流式 `readAsBeans` 按 `@ExcelColumn` **位置**或**表头名**绑定，扩展名缺失的图片 URL 退化为 JPEG。
 - 构建/Javadoc 对**含非 ASCII 字符的工程路径**敏感（已在 pom 用 UTF-8 兜底，仍建议纯英文路径）。
 - 列字段值通过 getter 反射读取（已用 LambdaMetafactory 缓存加速），行对象需提供对应 getter；导入目标类需对应 setter。
-- `@ExcelColumnParent` 仅支持导出（两行表头）；非分组列纵向合并跨两行（序号列跨度>1 时留空；与相邻同名列冲突时该列不纵向合并）；同组子列需相邻 index。
+- `@ExcelColumnParent` 仅支持导出（两行表头）；非分组列纵向合并跨两行（序号列跨度>1 时留空；与相邻同名列冲突时该列不纵向合并）；同组子列 index 必须相邻，**不相邻会抛 `ExcelAnnotationException`**。
 - 多 Builder 合并多 Sheet 时，子表通过 builder 单独设置的自定义样式会在并入时被重置为默认样式。
