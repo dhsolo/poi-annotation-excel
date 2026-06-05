@@ -282,14 +282,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             entries.add(new ColumnEntry(f, f.getAnnotation(ExcelColumn.class), f.getName(), null, null, null));
         }
         for (Field childField : infoChildFields) {
-            for (Class<?> c = childField.getType(); c != null && c != Object.class; c = c.getSuperclass()) {
-                for (Field cf : c.getDeclaredFields()) {
-                    ExcelColumn ann = cf.getAnnotation(ExcelColumn.class);
-                    if (ann != null) {
-                        entries.add(new ColumnEntry(cf, ann, cf.getName(), childField.getName(), null, null));
-                    }
-                }
-            }
+            collectChildColumns(childField.getType(), childField.getName(), entries, new HashSet<>());
         }
         for (Field parentField : parentColumnFields) {
             ExcelColumnParent parent = parentField.getAnnotation(ExcelColumnParent.class);
@@ -302,6 +295,27 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         }
         entries.sort(Comparator.comparingInt(e -> e.annotation.index()));
         return entries;
+    }
+
+    /**
+     * Recursively flattens an {@code @ExcelInfoChild} nested type: emits a column entry for each of
+     * its {@code @ExcelColumn} fields (with the accumulated dot-path prefix) and descends into any
+     * further {@code @ExcelInfoChild} fields. The {@code visited} set guards against type cycles.
+     */
+    private void collectChildColumns(Class<?> type, String prefix, List<ColumnEntry> entries, Set<Class<?>> visited) {
+        if (type == null || !visited.add(type)) return;
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (Field cf : c.getDeclaredFields()) {
+                ExcelColumn ann = cf.getAnnotation(ExcelColumn.class);
+                if (ann != null) {
+                    entries.add(new ColumnEntry(cf, ann, cf.getName(), prefix, null, null));
+                }
+                if (cf.getAnnotation(ExcelInfoChild.class) != null) {
+                    collectChildColumns(cf.getType(), prefix + "." + cf.getName(), entries, visited);
+                }
+            }
+        }
+        visited.remove(type);
     }
 
     private void handleExcelColumn(){

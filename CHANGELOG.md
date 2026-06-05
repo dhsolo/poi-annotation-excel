@@ -14,7 +14,8 @@ All notable changes to this project are documented here. The format is based on
   `@ExcelColumn` columns are flattened into the parent sheet (ordered with the parent columns by
   `index()`); on import the nested object is rebuilt and populated via path. Flattened columns are
   keyed by their distinct `sourcePath`, so same-named child fields of different parents
-  (e.g. `customer.name` vs `supplier.name`) no longer collide on import.
+  (e.g. `customer.name` vs `supplier.name`) no longer collide on import. Nesting is recursive
+  (multi-level, e.g. `addr.geo.zip`) with type-cycle detection.
 - Low-memory streaming `.xlsx` import via `StreamingExcelReader` (SAX): `read`,
   `readAsMaps`, and `readAsBeans` (bind by `@ExcelColumn` position or by header name),
   with leading-row skipping and numeric/boolean/`BigDecimal`/date-time conversion.

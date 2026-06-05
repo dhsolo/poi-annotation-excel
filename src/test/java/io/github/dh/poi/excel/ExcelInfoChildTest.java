@@ -140,6 +140,60 @@ class ExcelInfoChildTest {
         public Named2 getSupplier() { return supplier; } public void setSupplier(Named2 s) { this.supplier = s; }
     }
 
+    @Test
+    void flattensTwoLevelsAndRoundTrips() throws Exception {
+        byte[] bytes = ExcelUtil.toBytes(new L0Export().setData(List.of(
+                new L0Row("订单A", new L1("城市X", new L2("100100"))))));
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            Sheet s = wb.getSheetAt(0);
+            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("单号");
+            assertThat(s.getRow(0).getCell(1).getStringCellValue()).isEqualTo("城市");
+            assertThat(s.getRow(0).getCell(2).getStringCellValue()).isEqualTo("邮编"); // two levels deep
+            assertThat(s.getRow(1).getCell(2).getStringCellValue()).isEqualTo("100100");
+        }
+
+        List<L0Import> rows = ExcelUtil.importExcel(new ByteArrayInputStream(bytes), 0, 1, L0Import.class);
+        assertThat(rows.get(0).getNo()).isEqualTo("订单A");
+        assertThat(rows.get(0).getAddr().getCity()).isEqualTo("城市X");
+        assertThat(rows.get(0).getAddr().getGeo().getZip()).isEqualTo("100100"); // nested object rebuilt 2 levels
+    }
+
+    // export shapes
+    @ExcelInfo(sheetName = "l", isBigData = false)
+    public static class L0Export {
+        @ExcelData private List<L0Row> data;
+        @ExcelColumn(columnName = "单号", index = 1) private String no;
+        @ExcelInfoChild private L1 addr;
+        public L0Export setData(List<L0Row> d) { this.data = d; return this; }
+        public List<L0Row> getData() { return data; }
+    }
+    public static class L1 {
+        @ExcelColumn(columnName = "城市", index = 2) private String city;
+        @ExcelInfoChild private L2 geo;
+        public L1() {} public L1(String city, L2 geo) { this.city = city; this.geo = geo; }
+        public String getCity() { return city; } public void setCity(String c) { this.city = c; }
+        public L2 getGeo() { return geo; } public void setGeo(L2 g) { this.geo = g; }
+    }
+    public static class L2 {
+        @ExcelColumn(columnName = "邮编", index = 3) private String zip;
+        public L2() {} public L2(String zip) { this.zip = zip; }
+        public String getZip() { return zip; } public void setZip(String z) { this.zip = z; }
+    }
+    public static class L0Row {
+        private final String no; private final L1 addr;
+        public L0Row(String no, L1 addr) { this.no = no; this.addr = addr; }
+        public String getNo() { return no; } public L1 getAddr() { return addr; }
+    }
+    // import shape
+    @ExcelInfo(sheetName = "l")
+    public static class L0Import {
+        @ExcelColumn(columnName = "单号", index = 1) private String no;
+        @ExcelInfoChild private L1 addr;
+        public String getNo() { return no; } public void setNo(String n) { this.no = n; }
+        public L1 getAddr() { return addr; } public void setAddr(L1 a) { this.addr = a; }
+    }
+
     @ExcelInfo(sheetName = "order", isBigData = false)
     public static class OrderModel {
         @ExcelData
