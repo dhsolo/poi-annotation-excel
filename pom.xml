@@ -184,6 +184,14 @@
                                 <goals>
                                     <goal>sign</goal>
                                 </goals>
+                                <configuration>
+                                    <!-- 配合 settings.xml 的 gpg.passphrase 实现零弹窗签名（后台/CI）。
+                                         本机还需在 ~/.gnupg/gpg-agent.conf 加一行 allow-loopback-pinentry -->
+                                    <gpgArguments>
+                                        <arg>--pinentry-mode</arg>
+                                        <arg>loopback</arg>
+                                    </gpgArguments>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>
