@@ -320,7 +320,14 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             // them (rather than storing every value as text). Dates are handled by the
             // date-aware overload below (they need a date-formatted style to display correctly).
             if (value instanceof Number number) {
-                cell.setCellValue(number.doubleValue());
+                // A cell stores numbers as IEEE-754 double; values that cannot be represented
+                // exactly (large longs / big integers / high-precision decimals) are written as
+                // text to avoid silent precision loss (e.g. 19-digit ID numbers).
+                if (isLossyAsDouble(number)) {
+                    cell.setCellValue(number.toString());
+                } else {
+                    cell.setCellValue(number.doubleValue());
+                }
             } else if (value instanceof Boolean bool) {
                 cell.setCellValue(bool);
             } else {
@@ -330,6 +337,23 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             logger.error("Error setting cell value: {}", value, e);
             cell.setCellValue("ERROR");
         }
+    }
+
+    /** Largest integer a {@code double} can represent exactly (2^53). */
+    private static final long MAX_EXACT_DOUBLE_LONG = 9007199254740992L;
+
+    /** @return {@code true} if writing {@code n} as a double would lose precision. */
+    private static boolean isLossyAsDouble(Number n) {
+        if (n instanceof java.math.BigInteger bi) {
+            return bi.bitLength() > 53;
+        }
+        if (n instanceof java.math.BigDecimal bd) {
+            return bd.precision() > 15;
+        }
+        if (n instanceof Long || n instanceof java.util.concurrent.atomic.AtomicLong) {
+            return Math.abs(n.longValue()) > MAX_EXACT_DOUBLE_LONG;
+        }
+        return false; // int/short/byte/double/float fit safely
     }
 
     /** Cache of date cell styles keyed by format pattern (bounded by the few distinct patterns used). */
@@ -773,7 +797,15 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             if (!needOrderNum || orderColumnSpan == 1) {
                 for (int i = 0; i < plength; i++) {
                     if (grouped[i]) continue;
-                    String name = (needOrderNum && i == 0) ? "序号" : header[i - orderOffset];
+                    boolean isOrder = needOrderNum && i == 0;
+                    int d = i - orderOffset;
+                    // Skip vertical merge when this data column is part of a horizontal-merge run
+                    // (equal adjacent header names) — otherwise the two merges would overlap and POI throws.
+                    if (!isOrder && ((d > 0 && header[d - 1].equals(header[d]))
+                            || (d < header.length - 1 && header[d + 1].equals(header[d])))) {
+                        continue;
+                    }
+                    String name = isOrder ? "序号" : header[d];
                     pr.getCell(i).setCellValue(name);
                     setMergeColumn(rowNum, childHeaderRow, i, i);
                 }

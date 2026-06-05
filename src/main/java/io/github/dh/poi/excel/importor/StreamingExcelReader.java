@@ -332,13 +332,16 @@ public final class StreamingExcelReader {
         if (raw == null || raw.isEmpty()) return null;
         if (target == String.class) return raw;
         String s = raw.trim();
+        boolean integral = s.indexOf('.') < 0 && s.indexOf('e') < 0 && s.indexOf('E') < 0;
         try {
-            if (target == Integer.class || target == int.class) return (int) Double.parseDouble(s);
-            if (target == Long.class || target == long.class) return (long) Double.parseDouble(s);
+            // Parse integral text directly (Long.parseLong etc.) so large values keep full
+            // precision; only route through double when the text has a fractional/exponent part.
+            if (target == Integer.class || target == int.class) return integral ? Integer.parseInt(s) : (int) Double.parseDouble(s);
+            if (target == Long.class || target == long.class) return integral ? Long.parseLong(s) : (long) Double.parseDouble(s);
             if (target == Double.class || target == double.class) return Double.parseDouble(s);
             if (target == Float.class || target == float.class) return Float.parseFloat(s);
-            if (target == Short.class || target == short.class) return (short) Double.parseDouble(s);
-            if (target == Byte.class || target == byte.class) return (byte) Double.parseDouble(s);
+            if (target == Short.class || target == short.class) return integral ? Short.parseShort(s) : (short) Double.parseDouble(s);
+            if (target == Byte.class || target == byte.class) return integral ? Byte.parseByte(s) : (byte) Double.parseDouble(s);
             if (target == BigDecimal.class) return new BigDecimal(s);
             if (target == Boolean.class || target == boolean.class) return parseBoolean(s);
         } catch (NumberFormatException e) {
