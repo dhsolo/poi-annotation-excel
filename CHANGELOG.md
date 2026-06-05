@@ -44,7 +44,9 @@ All notable changes to this project are documented here. The format is based on
   rendering a broken header.
 - Multi-sheet export from independently built `ExcelCreatorBuilder`/`ExcelCreator` no longer
   fails with "Style does not belong to the supplied Workbook" — child sheets rebuild their
-  styles against the shared workbook.
+  styles against the shared workbook. A child's **custom** title/header/data styles (set before
+  it was attached) are now carried over by cloning them into the shared workbook, instead of
+  being silently reset to the defaults.
 - `@ExcelCustomValidateMethod` is now actually applied on import (it was previously collected
   but never wired to the column); the annotated method must return an `ExcelCustomValidate`.
 - Numeric and boolean cell values are now written with their native cell type instead of as

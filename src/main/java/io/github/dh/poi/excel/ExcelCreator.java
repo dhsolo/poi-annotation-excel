@@ -541,9 +541,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     private void initHelpers() {
-        styleManager = new DefaultCellStyleManager(book);
-        styleManager.initDefaultStyles();
-
+        // styleManager is built by the defaultCellStyle() call that immediately follows
+        // initHelpers() in createWorkBook(); no need to create a throwaway one here.
         INSTANCE_COUNT.incrementAndGet();
         pictureHandler = new DefaultPictureHandler(book, currentExcelType, sheet, drawing,
                 imagesSeparator, getOrCreateExecutor(), this);
@@ -1040,9 +1039,33 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         // creator is stitched into a parent's workbook (multi-sheet): cell styles belong to a
         // specific workbook, so styles created against the child's original book cannot be used
         // in the parent's book ("Style does not belong to the supplied Workbook").
+        CellStyle prevTitle = styleManager != null ? styleManager.getTitleCellStyle() : null;
+        CellStyle prevHeader = styleManager != null ? styleManager.getHeaderCellStyle() : null;
+        CellStyle prevData = styleManager != null ? styleManager.getCellStyle() : null;
+
         styleManager = new DefaultCellStyleManager(book);
         styleManager.initDefaultStyles();
         dateStyleCache.clear(); // date styles cached against the previous workbook are now invalid
+
+        // Carry any custom styles the child carried (set before it was stitched in) into the
+        // shared workbook by cloning them; cloneStyleFrom remaps fonts/formats across workbooks.
+        // If a clone fails the freshly-initialised default for that role is kept.
+        styleManager.setTitleCellStyle(rebindStyle(prevTitle, styleManager.getTitleCellStyle()));
+        styleManager.setHeaderCellStyle(rebindStyle(prevHeader, styleManager.getHeaderCellStyle()));
+        styleManager.setCellStyle(rebindStyle(prevData, styleManager.getCellStyle()));
+    }
+
+    /** Clones {@code source} into the current workbook; returns {@code fallback} if it cannot. */
+    private CellStyle rebindStyle(CellStyle source, CellStyle fallback) {
+        if (source == null) return fallback;
+        try {
+            CellStyle s = book.createCellStyle();
+            s.cloneStyleFrom(source);
+            return s;
+        } catch (Exception e) {
+            logger.warn("Could not carry a custom cell style into the shared workbook; using default", e);
+            return fallback;
+        }
     }
 
     // ==================== Export ====================
