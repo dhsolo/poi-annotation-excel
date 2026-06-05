@@ -750,17 +750,32 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 && header != null && header.length > 0) {
             int orderOffset = needOrderNum ? orderColumnSpan : 0;
             int plength = header.length + orderOffset;
+            int childHeaderRow = rowNum + 1; // the column-header row written by the block below
             Row pr = sheet.createRow(rowNum);
             pr.setHeight((short) headerRowHeight);
             for (int i = 0; i < plength; i++) {
                 pr.createCell(i).setCellStyle(headerStyle);
             }
+
+            boolean[] grouped = new boolean[plength];
             for (ExcelAnnotationProperty.ParentHeader ph : parentHeaders) {
                 int s = ph.startCol() + orderOffset;
-                int e = ph.endCol() + orderOffset;
-                if (s < plength) {
-                    pr.getCell(s).setCellValue(ph.label());
-                    if (e > s) setMergeColumn(rowNum, rowNum, s, Math.min(e, plength - 1));
+                int e = Math.min(ph.endCol() + orderOffset, plength - 1);
+                if (s >= plength) continue;
+                pr.getCell(s).setCellValue(ph.label());
+                if (e > s) setMergeColumn(rowNum, rowNum, s, e);
+                for (int c = s; c <= e; c++) grouped[c] = true;
+            }
+
+            // Non-grouped columns span both header rows: put the name in the (top) parent row and
+            // vertically merge down so a single label covers both rows. Only when the order column
+            // mapping is unambiguous (no order column, or a single order column).
+            if (!needOrderNum || orderColumnSpan == 1) {
+                for (int i = 0; i < plength; i++) {
+                    if (grouped[i]) continue;
+                    String name = (needOrderNum && i == 0) ? "序号" : header[i - orderOffset];
+                    pr.getCell(i).setCellValue(name);
+                    setMergeColumn(rowNum, childHeaderRow, i, i);
                 }
             }
             rowNum++;

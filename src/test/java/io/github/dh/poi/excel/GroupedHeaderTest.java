@@ -39,12 +39,14 @@ class GroupedHeaderTest {
         try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             Sheet s = wb.getSheetAt(0);
 
-            // Row 0 = parent header: "销售额" merged over the Q1/Q2 columns (1..2); 名称 column blank above.
+            // Row 0 = parent header: "销售额" merged over the Q1/Q2 columns (1..2);
+            // the non-grouped "名称" column shows its name on top and spans both header rows.
             assertThat(s.getRow(0).getCell(1).getStringCellValue()).isEqualTo("销售额");
             assertThat(s.getMergedRegions()).contains(new CellRangeAddress(0, 0, 1, 2));
+            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("名称");
+            assertThat(s.getMergedRegions()).contains(new CellRangeAddress(0, 1, 0, 0));
 
-            // Row 1 = column header row.
-            assertThat(s.getRow(1).getCell(0).getStringCellValue()).isEqualTo("名称");
+            // Row 1 = column header row (sub-headers under the parent group).
             assertThat(s.getRow(1).getCell(1).getStringCellValue()).isEqualTo("Q1");
             assertThat(s.getRow(1).getCell(2).getStringCellValue()).isEqualTo("Q2");
 
