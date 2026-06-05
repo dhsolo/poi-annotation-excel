@@ -75,6 +75,13 @@ public class ExcelModel implements ExcelTranslateHandler, Serializable {
     /** Whether this field is a date/time type. */
     private boolean isDate=false;
 
+    /** Whether this column is flattened from an @ExcelInfoChild nested object (value read/written via sourcePath). */
+    private boolean flattened=false;
+
+    public boolean isFlattened() { return flattened; }
+
+    public ExcelModel setFlattened(boolean flattened) { this.flattened = flattened; return this; }
+
     /** Date format pattern. */
     private String pattern="yyyy-MM-dd HH:mm:ss";
 

@@ -270,6 +270,10 @@ public class ExcelImportor {
 //					physicalIndex = Math.min(columnNameList.get(s).size()-1, physicalIndex);
 					ExcelModel excelModel = columnNameList.get(s).get(physicalIndex);
 					String fieldName = excelModel.getFieldName();
+					// Flattened (@ExcelInfoChild) columns key by their distinct sourcePath so children of
+					// different parents sharing a child field name do not collide.
+					String dataKey = (excelModel.isFlattened() && excelModel.getSourcePath() != null)
+							? excelModel.getSourcePath() : fieldName;
 					Object value = null;
 
 					if (exceptColumnNum!=null && exceptColumnNum.contains((int) colIx)) {
@@ -316,7 +320,7 @@ public class ExcelImportor {
 					} catch (Exception e) {
 						logger.error("Date conversion failed", e);
 					}
-					originalCellData.put(fieldName, value);
+					originalCellData.put(dataKey, value);
 					if (value!=null && value.toString().trim().length()>0 && excelModel.isNeedtranslate() && excelModel.getTranslateMappingInfo() != null) {
 						Object temp = getFromMap(excelModel.getTranslateMappingInfo(), value, null);
 						final Object originalValue = value;
@@ -363,7 +367,7 @@ public class ExcelImportor {
 
 					}
 
-					cellData.put(fieldName, value);
+					cellData.put(dataKey, value);
 					physicalIndex++;
 				}
 				Map<String,Object> finalCellData = new HashMap<>();
@@ -673,9 +677,9 @@ public class ExcelImportor {
 					for (ExcelModel excelModel : listModels) {
 						String field = excelModel.getFieldName();
 						String sourcePath = excelModel.getSourcePath();
-						// Flattened @ExcelInfoChild column: set the value on the nested object via path.
-						if (sourcePath != null && sourcePath.contains(".")) {
-							setByPath(t, sourcePath, map, field);
+						// Flattened @ExcelInfoChild column: rebuild the nested object via path (keyed by sourcePath).
+						if (excelModel.isFlattened() && sourcePath != null && sourcePath.contains(".")) {
+							setByPath(t, sourcePath, map, sourcePath);
 							continue;
 						}
 						Field javaField =Reflect.findField(clazz,field) ;//clazz.getDeclaredField(field);

@@ -12,7 +12,9 @@ All notable changes to this project are documented here. The format is based on
   their values via `sourceField`/`sourcePath`.
 - `@ExcelInfoChild` is now implemented for both export and import: a nested object's
   `@ExcelColumn` columns are flattened into the parent sheet (ordered with the parent columns by
-  `index()`); on import the nested object is rebuilt and populated via path.
+  `index()`); on import the nested object is rebuilt and populated via path. Flattened columns are
+  keyed by their distinct `sourcePath`, so same-named child fields of different parents
+  (e.g. `customer.name` vs `supplier.name`) no longer collide on import.
 - Low-memory streaming `.xlsx` import via `StreamingExcelReader` (SAX): `read`,
   `readAsMaps`, and `readAsBeans` (bind by `@ExcelColumn` position or by header name),
   with leading-row skipping and numeric/boolean/`BigDecimal`/date-time conversion.

@@ -130,7 +130,7 @@ List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportMo
 把嵌套子对象的 `@ExcelColumn` 列**拍平**进父 Sheet。子列按各自 `@ExcelColumn.index()` 与父列**统一排序**。
 - **导出**：通过路径 `父字段名.子字段名` 读取行对象上的嵌套值（行对象需有 `get父字段().get子字段()`）。
 - **导入**：自动重建嵌套对象并填充（父字段类型需有无参构造器，子字段需 setter）。
-- 子列支持 `columnName/index/translate/日期格式/图片/公式`；级联与方法级下拉/翻译不适用于子列；父子字段名不可重名。
+- 子列支持 `columnName/index/translate/日期格式/图片/公式`；级联与方法级下拉/翻译不适用于子列。导入按各列的 `sourcePath` 唯一键映射，**不同父对象的同名子字段（如 `customer.name` 与 `supplier.name`）不会串值**。仅支持一层嵌套。
 
 ```java
 @ExcelInfo(sheetName = "订单")

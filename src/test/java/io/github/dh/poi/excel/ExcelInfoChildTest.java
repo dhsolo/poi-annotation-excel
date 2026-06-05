@@ -94,6 +94,52 @@ class ExcelInfoChildTest {
         public void setPhone(String phone) { this.phone = phone; }
     }
 
+    @Test
+    void importDistinguishesChildrenWithSameFieldName() throws Exception {
+        byte[] bytes = ExcelUtil.toBytes(new TwoChildExport().setData(List.of(
+                new TwoChildRow("张三", "李四"))));
+
+        List<TwoChildImport> rows = ExcelUtil.importExcel(new ByteArrayInputStream(bytes), 0, 1, TwoChildImport.class);
+
+        assertThat(rows).hasSize(1);
+        // Both children declare a field named "name"; values must not be crossed.
+        assertThat(rows.get(0).getCustomer().getName()).isEqualTo("张三");
+        assertThat(rows.get(0).getSupplier().getName()).isEqualTo("李四");
+    }
+
+    // --- export shapes (two nested objects whose flattened columns share the child field "name") ---
+    @ExcelInfo(sheetName = "tc", isBigData = false)
+    public static class TwoChildExport {
+        @ExcelData private List<TwoChildRow> data;
+        @ExcelInfoChild private Named customer;
+        @ExcelInfoChild private Named2 supplier;
+        public TwoChildExport setData(List<TwoChildRow> d) { this.data = d; return this; }
+        public List<TwoChildRow> getData() { return data; }
+    }
+    public static class Named {
+        @ExcelColumn(columnName = "客户名", index = 1) private String name;
+        public Named() {} public Named(String n) { this.name = n; }
+        public String getName() { return name; } public void setName(String n) { this.name = n; }
+    }
+    public static class Named2 {
+        @ExcelColumn(columnName = "供应商名", index = 2) private String name;
+        public Named2() {} public Named2(String n) { this.name = n; }
+        public String getName() { return name; } public void setName(String n) { this.name = n; }
+    }
+    public static class TwoChildRow {
+        private final Named customer; private final Named2 supplier;
+        public TwoChildRow(String c, String s) { this.customer = new Named(c); this.supplier = new Named2(s); }
+        public Named getCustomer() { return customer; } public Named2 getSupplier() { return supplier; }
+    }
+    // --- import shape ---
+    @ExcelInfo(sheetName = "tc")
+    public static class TwoChildImport {
+        @ExcelInfoChild private Named customer;
+        @ExcelInfoChild private Named2 supplier;
+        public Named getCustomer() { return customer; } public void setCustomer(Named c) { this.customer = c; }
+        public Named2 getSupplier() { return supplier; } public void setSupplier(Named2 s) { this.supplier = s; }
+    }
+
     @ExcelInfo(sheetName = "order", isBigData = false)
     public static class OrderModel {
         @ExcelData

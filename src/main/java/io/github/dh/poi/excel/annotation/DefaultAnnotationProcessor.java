@@ -362,6 +362,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 applySourceMapping(annotation, excelModel);
             } else if (isInfoChild) {
                 excelModel.setSourcePath(entry.pathPrefix + "." + readKey);
+                excelModel.setFlattened(true);
                 applyInlineTranslate(annotation, excelModel);
                 applyExcelImage(column, excelModel);
                 applyExcelDateFormat(column, excelModel);
