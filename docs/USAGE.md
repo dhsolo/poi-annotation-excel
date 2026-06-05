@@ -2,8 +2,8 @@
 
 基于 Apache POI 的注解驱动 Excel 导出/导入库。本手册覆盖全部公开用法与每个配置项。
 
-- 坐标：`io.github.dh:poi-annotation-excel`
-- 基础包：`io.github.dh.poi.excel`
+- 坐标：`io.github.dhsolo:poi-annotation-excel`
+- 基础包：`io.github.dhsolo.poi.excel`
 - 运行环境：JDK 17+，POI 5.2.5（传递依赖）
 
 ---
@@ -531,7 +531,7 @@ ExcelUtil.importExcel(in, DeviceImportModel.class, new ExcelReadListener() {
 
 ## 9. 低内存流式导入 StreamingExcelReader
 
-真·SAX 流式读取 `.xlsx`，内存有界。位于 `io.github.dh.poi.excel.importor`。
+真·SAX 流式读取 `.xlsx`，内存有界。位于 `io.github.dhsolo.poi.excel.importor`。
 
 ```java
 // 逐行回调（不累积）

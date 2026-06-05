@@ -231,11 +231,11 @@ the whole sheet in memory; the streaming reader holds one row at a time.
 
 ## Package layout
 
-The public API surface is at the root of `io.github.dh.poi.excel`; everything else is
+The public API surface is at the root of `io.github.dhsolo.poi.excel`; everything else is
 organised by responsibility:
 
 ```
-io.github.dh.poi.excel
+io.github.dhsolo.poi.excel
 ├── ExcelCreator, ExcelCreatorBuilder, ExcelUtil, ExcelModel, ExcelType   ← public facade
 ├── annotation/    @ExcelInfo, @ExcelColumn, @ExcelRow, processor
 ├── cascade/       cascade-validation builder and wrappers
