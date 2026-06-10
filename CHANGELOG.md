@@ -121,6 +121,26 @@ All notable changes to this project are documented here. The format is based on
   `ClassCastException` during picture extraction.
 - `DefaultExcelExporter.getWorkBook()` caches the workbook re-read from the picture-injected
   temp file, so a second call no longer returns the original picture-less workbook.
+- `@ExcelColumn(columnWidth)` now applies to the column's physical position: with
+  `needOrder = true` every custom width used to land one column to the left, on the order
+  column. Data-to-physical column translation (order block + multi-picture expansion) is now
+  centralised in one helper shared by widths, vertical merges, and validation columns.
+- Complex multi-section sheets: each section's layout (header expansion, multi-image alignment,
+  vertical merges) now uses only its own multi-picture expansion entries; the picture handler's
+  cross-section mapping mixed colliding data-column keys, letting a parent section's multi-image
+  column shift a child section's columns. `PictureHandler` gained `getSectionColumnMaxMapping()`
+  and a mapping-explicit `expandHeaderForPictures` overload (defaulted for compatibility).
+- `export`/`upload`/`getInputStream`/`exportLocal` serialise the picture-injected workbook when
+  `getWorkBook()` was called first (the original in-memory workbook lacks the injected
+  pictures).
+- Import value translation no longer fails on comparator-based translate maps (e.g.
+  `TreeMap`) combined with non-string cell values; the typed lookup falls back to the
+  stringified scan.
+
+### Changed
+- `ExcelCreator.close()` now documents (and relies on) the close-after-export contract: in
+  big-data mode it disposes the streaming workbook's temp files, so exporting after `close()`
+  is not supported.
 
 ### Deprecated
 - `ExcelImportor(Object)`: the constructor reads nothing and yields an unusable instance; use
