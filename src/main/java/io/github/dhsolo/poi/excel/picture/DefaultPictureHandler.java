@@ -28,10 +28,8 @@ import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.net.URLConnection;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.concurrent.*;
@@ -435,16 +433,10 @@ public class DefaultPictureHandler implements PictureHandler {
             } else {
                 try {
                     byteArrayOut.reset();
-                    if (s.startsWith("http")) {
-                        URL url = new URL(s);
-                        URLConnection urlConnection = url.openConnection();
-                        urlConnection.setConnectTimeout(imageReadTimeOut);
-                        urlConnection.setReadTimeout(imageReadTimeOut);
-                        try (java.io.InputStream is = urlConnection.getInputStream()) {
-                            bufferImg = ImageIO.read(ImageIO.createImageInputStream(is));
-                        }
-                    } else {
-                        bufferImg = ImageIO.read(new File(s));
+                    // Same guards as the async path: protocol whitelist, ImageDownloadPolicy
+                    // (SSRF), timeouts and the size cap — this fallback used to bypass them all.
+                    try (java.io.InputStream is = ImageDownLoadTask.openGuardedStream(s, imageReadTimeOut)) {
+                        bufferImg = ImageIO.read(ImageIO.createImageInputStream(is));
                     }
                     if (bufferImg == null) {
                         continue;
