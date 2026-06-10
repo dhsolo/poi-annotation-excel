@@ -152,13 +152,21 @@ public class ImageDownLoadTask implements Runnable {
         }
     }
 
+    private InputStream openStream(String url) throws Exception {
+        return openGuardedStream(url, imageReadTimeOut);
+    }
+
     /**
      * Opens an input stream for the image. Remote URLs must use http/https, are CJK-encoded,
-     * time-bounded, and rejected early if the declared content length exceeds the size cap.
-     * Any other value is treated as a local file path. The returned stream is size-limited
-     * to {@link #MAX_IMAGE_BYTES} to defend against oversized or hostile responses.
+     * time-bounded, checked against {@link ImageDownloadPolicy}, and rejected early if the
+     * declared content length exceeds the size cap. Any other value is treated as a local file
+     * path. The returned stream is size-limited to {@link #MAX_IMAGE_BYTES} to defend against
+     * oversized or hostile responses.
+     *
+     * <p>Package-visible so every image fetch path (including the synchronous fallback in
+     * {@code DefaultPictureHandler.setPicture}) goes through the same guards.
      */
-    private InputStream openStream(String url) throws Exception {
+    static InputStream openGuardedStream(String url, int imageReadTimeOut) throws Exception {
         InputStream raw;
         if (url.startsWith("http")) {
             URL imgUrl = new URL(urlEncoder(url));

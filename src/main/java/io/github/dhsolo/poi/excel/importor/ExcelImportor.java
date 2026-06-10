@@ -18,7 +18,6 @@ package io.github.dhsolo.poi.excel.importor;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.lang.reflect.*;
-import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -101,6 +100,10 @@ public class ExcelImportor {
 	private FormulaEvaluator formulaEvaluator;
 
 
+	/**
+	 * @deprecated does nothing (no stream is read); construct with {@link #ExcelImportor(InputStream)}.
+	 */
+	@Deprecated
 	public ExcelImportor(Object excelModel){
 
 	}
@@ -238,12 +241,14 @@ public class ExcelImportor {
 			startRow = Math.min(startRow, sheet.getLastRowNum());
 			int lastRowNum = sheet.getLastRowNum();
 			LinkedList<Map<String, Object>> rowData = new LinkedList<>();
-			List<ExcelCustomModel> excelCustomModels = new ArrayList<>();
 			for (int r = startRow; r <= lastRowNum; r++) {
 				row = sheet.getRow(r);
 				if (row == null ||  checkIsEmpty(row)) {
 					continue;
 				}
+				// Per-row snapshots for @ExcelCustomValidateMethod: rebuilt every row so the
+				// validator always sees the current row's cell/value, not the first row's.
+				List<ExcelCustomModel> excelCustomModels = new ArrayList<>();
 				short minColIx = row.getFirstCellNum();
 				short maxColIx = row.getLastCellNum();
 				if(minColIx <0 || maxColIx < 0){
@@ -342,29 +347,14 @@ public class ExcelImportor {
 						value = getPicture(r, colIx, downPath, excelModel.getImageVisitPrex());
 					}
 					if(excelModel.getExcelCustomValidate()!=null){
-						if(!excelCustomModels.isEmpty()){
-							long count = excelCustomModels.stream().filter(excelCustomModel -> excelCustomModel.getExcelModel() == excelModel).count();
-							if(count ==0){
-								ExcelCustomModel excelCustomModel = new ExcelCustomModel();
-								excelCustomModel.setExcelModel(excelModel);
-								excelCustomModel.setCurrentCellNum(colIx);
-								excelCustomModel.setCurrentRowNum(r);
-								excelCustomModel.setCell(cell);
-								excelCustomModel.setRow(row);
-								excelCustomModel.setCurrentValue(value);
-								excelCustomModels.add(excelCustomModel);
-							}
-						}else{
-							ExcelCustomModel excelCustomModel = new ExcelCustomModel();
-							excelCustomModel.setExcelModel(excelModel);
-							excelCustomModel.setCurrentCellNum(colIx);
-							excelCustomModel.setCurrentRowNum(r);
-							excelCustomModel.setCell(cell);
-							excelCustomModel.setRow(row);
-							excelCustomModel.setCurrentValue(value);
-							excelCustomModels.add(excelCustomModel);
-						}
-
+						ExcelCustomModel excelCustomModel = new ExcelCustomModel();
+						excelCustomModel.setExcelModel(excelModel);
+						excelCustomModel.setCurrentCellNum(colIx);
+						excelCustomModel.setCurrentRowNum(r);
+						excelCustomModel.setCell(cell);
+						excelCustomModel.setRow(row);
+						excelCustomModel.setCurrentValue(value);
+						excelCustomModels.add(excelCustomModel);
 					}
 
 					cellData.put(dataKey, value);
@@ -374,9 +364,9 @@ public class ExcelImportor {
 				Map<String,Object> finalOriginalCellData = new HashMap<>();
 				finalCellData.putAll(cellData);
 				finalOriginalCellData.putAll(originalCellData);
-				if(excelCustomModels.size() > 0  && errorMessage.length() == 0){
+				if(excelCustomModels.size() > 0  && errorMessage.length() == errorLengthBeforeRow){
 					for (ExcelCustomModel excelCustomModel : excelCustomModels){
-						if(errorMessage.length() > 0){
+						if(errorMessage.length() > errorLengthBeforeRow){
 							if(firstErrorBreak){
 								break;
 							}
@@ -528,17 +518,25 @@ public class ExcelImportor {
 
 	private Object getFromMap(Map<?, ?> map, Object key, Class type) {
 		Object value = null;
-		Set<?> keys = map.keySet();
-		Iterator<?> it = keys.iterator();
-		while (it.hasNext()) {
-			Object mapKey = it.next();
-			if (key == mapKey || mapKey.equals(key.toString())) {
-				value = map.get(mapKey);
-				if (type != null)
-					value = caseObject(value, type);
-
+		try {
+			if (map.containsKey(key)) {
+				value = map.get(key);
+			}
+		} catch (ClassCastException | NullPointerException ignored) {
+			// comparator-based maps (e.g. TreeMap) may reject a key of a different type;
+			// fall back to the stringified scan below
+		}
+		if (value == null) {
+			String keyText = key.toString();
+			for (Object mapKey : map.keySet()) {
+				if (mapKey != null && mapKey.equals(keyText)) {
+					value = map.get(mapKey);
+					break;
+				}
 			}
 		}
+		if (value != null && type != null)
+			value = caseObject(value, type);
 		return value;
 	}
 
@@ -740,12 +738,16 @@ public class ExcelImportor {
 	}
 	
 	public Object formart(Object object) {
-		NumberFormat nf = NumberFormat.getInstance();
-		String s = nf.format(object);
-		if (s.indexOf(",") >= 0) {
-		    s = s.replace(",", "");
+		// NumberFormat.getInstance() silently rounds to 3 fraction digits; go through
+		// BigDecimal so the full numeric precision of the cell survives the import.
+		if (object instanceof Number) {
+			String s = object.toString();
+			if ("NaN".equals(s) || s.endsWith("Infinity")) {
+				return s; // BigDecimal cannot represent these
+			}
+			return new java.math.BigDecimal(s).stripTrailingZeros().toPlainString();
 		}
-		return s;
+		return object.toString();
 	}
 
 	/**
@@ -797,7 +799,10 @@ public class ExcelImportor {
 						XSSFDrawing drawing = (XSSFDrawing) dr;
 						List<XSSFShape> shapes = drawing.getShapes();
 						for (XSSFShape shape : shapes) {
-							XSSFPicture pic = (XSSFPicture) shape;
+							// A sheet can also hold text boxes/shapes; only pictures are relevant
+							if (!(shape instanceof XSSFPicture pic)) {
+								continue;
+							}
 							XSSFClientAnchor anchor = pic.getPreferredSize();
 							CTMarker ctMarker = anchor.getFrom();
 							int pictureRow = ctMarker.getRow();

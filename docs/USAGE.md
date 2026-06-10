@@ -75,7 +75,8 @@ List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportMo
 | `imageReadTimeOut` | int | `500` | 远程图片下载超时（ms） |
 | `imageSeparator` | String | `""` | 单元格内多图 URL 的分隔符（空则按 `,`） |
 | `pictureInnerType` | int | `0` | 图片锚定方式，见 [AnchorType](#15-枚举与常量) |
-| `isBigData` | boolean | `true` | 是否用 SXSSF 流式写（大数据省内存） |
+| `isBigData` | boolean | `true` | 是否用 SXSSF 流式写（大数据省内存）。**注意默认即流式**：行窗口外不可回访，`getWorkBook()` 返回 SXSSF 实例；小表或需后处理时显式置 `false` 用全内存 XSSF |
+| `validateRowCount` | int | `1000` | 下拉校验/`@ExcelFormula` 公式预填覆盖的数据行数（自首个数据行起算） |
 | `imageResize` | `@ExcelImageResize` | 不缩放 | 全局图片缩放策略 |
 | `noneCellDefaultValue` | String | `""` | 字段为 null/空时写入的默认文本 |
 
@@ -160,6 +161,10 @@ private LocalTime shiftTime;        // 时间单元格（一天的分数）
 
 ### `@ExcelListBox`（字段或方法）
 给列附加下拉校验列表。`listTextBox` 为静态候选；标注在方法上则运行时动态提供（方法名由 `columnName` 关联到列）。`isNeedAddTranslationException` 控制是否为翻译值加例外。
+
+下拉校验默认覆盖自首个数据行起的 **1000 行**，可通过 `@ExcelInfo(validateRowCount = ...)`、
+`ExcelCreator.setValidationRowCount(int)` 或 Builder 的 `validationRowCount(int)` 调整
+（模板预期接收更多行时调大，小模板可调小瘦身）。`@ExcelFormula` 的公式预填行数同受此配置控制。
 
 ### `@ExcelTranslateMethod(columnName)`（方法）
 为指定列提供自定义翻译函数，方法须返回 `Function`。比 `@ExcelColumn.translate` 更灵活（复杂映射）。同时存在时方法优先。
@@ -577,6 +582,13 @@ CascadeValidateModel model = CascadeValidateModelBuilder.builder("city")
 ```
 
 把级联模型挂到列上：在模型方法用 `@ExcelListBox(columnName="...")` 返回该级联，或通过模型装配。
+
+级联的实现基于 Excel 名称管理器 + `INDIRECT`，名称由父级选项值拼接而成，受 Excel 命名规则约束：
+- 选项值中的**非法字符**（空格、`-`、`/`、括号等，即字母/数字/`.`/`_` 之外的字符）会被自动替换为 `_`，
+  并在下拉公式中用 `SUBSTITUTE` 镜像同样的替换——常见的真实数据可直接使用，无需预处理；
+- 拼接后**超 255 字符**、**形似单元格引用**（如 `A1`）或**空值**无法替换补救，会抛出带具体选项链的
+  `ExcelException`（fail-fast，不产出坏文件）；
+- 名称大小写不敏感，仅大小写不同的父值（`ABC`/`abc`）会自动加后缀消歧。
 
 ---
 

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-10
+
 ### Added
 - `@ExcelColumnParent` is now implemented: renders a two-row grouped header (parent label merged
   over its child columns). A new `value()` attribute supplies the parent label; child columns read
@@ -24,6 +26,10 @@ All notable changes to this project are documented here. The format is based on
 - Parallel image download overlapped with data population; downloaded media injected into
   the workbook ZIP as `STORED` entries (no wasteful re-deflate).
 - Disabled-by-default import benchmark (`ImportBenchmarkTest`) comparing DOM vs SAX import.
+- Configurable validation/formula row coverage: dropdown-list validations and `@ExcelFormula`
+  pre-fill cover `@ExcelInfo(validateRowCount = ...)` data rows (default `1000`, previously
+  hardcoded); also settable via `ExcelCreator.setValidationRowCount(int)` and the builder's
+  `validationRowCount(int)`.
 
 ### Changed
 - `@ExcelInfo` attribute `orderMergeIndex` renamed to `orderColumnSpan` for clarity.
@@ -33,6 +39,9 @@ All notable changes to this project are documented here. The format is based on
   per-cell font metrics (faster; no longer throws on streaming sheets). Formula columns are
   measured by their cached computed result rather than the formula expression text, so a long
   formula (e.g. `SUM(A1:A100)`) no longer over-widens its column.
+- `ExcelCreator.close()` now documents (and relies on) the close-after-export contract: in
+  big-data mode it disposes the streaming workbook's temp files, so exporting after `close()`
+  is not supported.
 
 ### Fixed
 - Large integers (`Long`/`BigInteger` beyond 2^53) and high-precision `BigDecimal` are written as
@@ -59,6 +68,105 @@ All notable changes to this project are documented here. The format is based on
   gating bug forced in-memory image embedding).
 - Windows file-lock failure when injecting images into the temporary workbook ZIP.
 - Javadoc generation on project paths containing non-ASCII characters.
+- **Import precision loss**: numeric cell values were silently rounded to 3 fraction digits by
+  `NumberFormat.getInstance()` during DOM import (`0.123456789` became `"0.123"`, and date-time
+  serial values lost up to ~43 seconds). Values are now converted via `BigDecimal` and keep their
+  full precision; integer-valued cells still render without a trailing `.0`.
+- **Custom validation skipped rows beyond the first**: `@ExcelCustomValidateMethod` snapshots
+  were captured only for the first data row and re-validated against later rows, so an invalid
+  value in row 2+ passed silently. Snapshots are now rebuilt per row; additionally, an error in an
+  earlier row no longer disables custom validation for all subsequent rows when
+  `firstErrorBreak = false`.
+- **`@ExcelColumnParent` + `needMergeCell` crash**: the vertical-merge base row did not account
+  for the extra grouped-header row, landing the data merge one row too high and failing with an
+  overlapping-region `IllegalStateException` (superseded by the captured-first-data-row fix
+  below, which handles this and the related layouts uniformly).
+- **Multi-image column expansion desynced later columns**: the physical-to-data column offset
+  created by multi-picture expansion was overwritten per column instead of accumulated, causing a
+  `NullPointerException` (or shifted values) once two or more ordinary columns followed a
+  multi-image column. The offset now accumulates; `CellResolveContext` gained a `dataColIndex`
+  component (the old constructor signature is preserved), and `PictureCellResolver` looks up the
+  per-column image count by data column index, fixing the same desync when an order column
+  (`needOrder = true`) shifts the layout.
+- Vertical merges (`needMergeCell`) now use the **actual first data row captured when data
+  population starts**, instead of re-deriving it from the title/custom-row/grouped-header layout
+  rules. This also fixes the merge landing at the top of the sheet for **complex multi-section
+  sheets** and the off-by-one when a before-title custom row exists on a title-less sheet.
+- The `needMergeCell` target column now shifts by the whole order block (`orderColumnSpan`) and
+  by any multi-picture expansion to its left, instead of always shifting by one.
+- `orderColumnSpan > 1` no longer breaks the header row with an
+  `ArrayIndexOutOfBoundsException` (the order-block merge consumed a column and the header
+  label index only skipped one column).
+- `formart` passes `NaN`/`Infinity` through as text instead of failing in `BigDecimal`.
+- Cascade dropdowns: option values that cannot form a legal Excel defined name (illegal
+  characters such as spaces or hyphens, length over 255, cell-reference-like values such as
+  `A1`, or empty values) now fail fast with an `ExcelException` naming the offending option
+  chain, instead of surfacing a bare POI `IllegalArgumentException` or a
+  `StringIndexOutOfBoundsException`.
+- Cascade dropdowns: defined-name deduplication is now case-insensitive (Excel names are);
+  parent values differing only by case (`ABC` vs `abc`) no longer crash with
+  "The workbook already contains this name".
+- Cascade dropdowns: option values containing characters Excel forbids in defined names
+  (spaces, hyphens, slashes, parentheses, ...) now work transparently — the registered name
+  substitutes them with `_` and the `INDIRECT` formula mirrors the substitution via
+  `SUBSTITUTE(...)`. Overlong (&gt;255) chains, cell-reference-like values, and empty values
+  still fail fast with an `ExcelException`.
+- Dropdown/formula validation columns (`realIndex`) shift by the whole order block: with
+  `orderColumnSpan > 1` the validation landed on the wrong physical column (the span was also
+  assigned after the index computation consuming it, so it never took effect).
+- Streaming (`isBigData`) workbooks: `close()` now disposes the SXSSF backing temp files (they
+  used to accumulate until JVM exit); a child sheet stitched into a parent workbook disposes its
+  own abandoned workbook as well.
+- Shared image-download pool accounting is ownership-based: a wrapper creator built via
+  `ExcelCreator(Workbook)` no longer drives the instance count negative on `close()` (which shut
+  the pool down underneath other active exports), double `close()` is idempotent, and a re-init
+  via `createWorkBook` no longer double-counts.
+- The synchronous picture fallback path (taken when the disk-staging directory is unavailable)
+  now goes through the same guarded stream as the async downloader: protocol whitelist,
+  `ImageDownloadPolicy` SSRF checks, timeouts, and the 64 MB size cap (it used to bypass all of
+  them).
+- A sheet with a title and a single column no longer crashes on a one-cell title merge.
+- Cell resolvers are matched in `getOrder()` priority (picture > handler > translate > plain) as
+  documented; a custom handler used to hijack `@ExcelImage` columns and desync multi-picture
+  layouts.
+- Importing a sheet containing non-picture shapes (text boxes etc.) no longer throws
+  `ClassCastException` during picture extraction.
+- `DefaultExcelExporter.getWorkBook()` caches the workbook re-read from the picture-injected
+  temp file, so a second call no longer returns the original picture-less workbook.
+- `@ExcelColumn(columnWidth)` now applies to the column's physical position: with
+  `needOrder = true` every custom width used to land one column to the left, on the order
+  column. Data-to-physical column translation (order block + multi-picture expansion) is now
+  centralised in one helper shared by widths, vertical merges, and validation columns.
+- Complex multi-section sheets: each section's layout (header expansion, multi-image alignment,
+  vertical merges) now uses only its own multi-picture expansion entries; the picture handler's
+  cross-section mapping mixed colliding data-column keys, letting a parent section's multi-image
+  column shift a child section's columns. `PictureHandler` gained `getSectionColumnMaxMapping()`
+  and a mapping-explicit `expandHeaderForPictures` overload (defaulted for compatibility).
+- `export`/`upload`/`getInputStream`/`exportLocal` serialise the picture-injected workbook when
+  `getWorkBook()` was called first (the original in-memory workbook lacks the injected
+  pictures).
+- Import value translation no longer fails on comparator-based translate maps (e.g.
+  `TreeMap`) combined with non-string cell values; the typed lookup falls back to the
+  stringified scan.
+- Appended child sheets (`getChild().add(...)`): pictures and dropdown validations used to
+  land in the child's discarded original workbook and silently vanish from the export. The
+  child now shares the parent's picture handler (rebound to the child's sheet via the new
+  `PictureHandler.bindSheet`; download directory, image numbering, and ZIP staging are
+  coordinated workbook-wide) and rebuilds its validator against the shared workbook.
+- Complex multi-section sheets: child sections never built a data validator, so
+  `@ExcelListBox`/cascade/`@ExcelFormula` on a child section were silently skipped; the
+  validator is now created against the shared sheet, and `currentListNum`/name counters are
+  carried back to the parent.
+- Dropdown/formula validation columns now account for multi-picture expansion: `realIndex` is
+  refreshed from the physical layout after picture analysis, so a dropdown to the right of a
+  multi-image column lands on its real column.
+- `ExcelExporter` gained a `close()` lifecycle hook (default no-op); the workbook re-read from
+  the picture-injected temp file is now closed by `ExcelCreator.close()` instead of leaking its
+  `OPCPackage`.
+
+### Deprecated
+- `ExcelImportor(Object)`: the constructor reads nothing and yields an unusable instance; use
+  `ExcelImportor(InputStream)`.
 
 ### Security
 - Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).

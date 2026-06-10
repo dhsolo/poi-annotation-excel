@@ -51,11 +51,32 @@ class CustomValidateImportTest {
         assertThat(ExcelUtil.importExcel(new ByteArrayInputStream(xlsx), 0, 1, AgeModel.class)).hasSize(1);
     }
 
-    private static byte[] buildXlsx(String header, String value) throws Exception {
+    /**
+     * Regression: validation snapshots used to be captured only for the first data row,
+     * so an invalid value in row 2+ silently passed.
+     */
+    @Test
+    void invalidValueBeyondFirstRowIsStillCaught() throws Exception {
+        byte[] xlsx = buildXlsx("年龄", "20", "-5"); // row 1 valid, row 2 invalid
+        assertThatThrownBy(() ->
+                ExcelUtil.importExcel(new ByteArrayInputStream(xlsx), 0, 1, AgeModel.class))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("年龄不能为负");
+    }
+
+    @Test
+    void allRowsValidPassesCustomValidation() throws Exception {
+        byte[] xlsx = buildXlsx("年龄", "20", "30", "40");
+        assertThat(ExcelUtil.importExcel(new ByteArrayInputStream(xlsx), 0, 1, AgeModel.class)).hasSize(3);
+    }
+
+    private static byte[] buildXlsx(String header, String... values) throws Exception {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = wb.createSheet("Sheet1");
             sheet.createRow(0).createCell(0).setCellValue(header);
-            sheet.createRow(1).createCell(0).setCellValue(value);
+            for (int i = 0; i < values.length; i++) {
+                sheet.createRow(i + 1).createCell(0).setCellValue(values[i]);
+            }
             wb.write(out);
             return out.toByteArray();
         }

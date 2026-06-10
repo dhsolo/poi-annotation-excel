@@ -31,6 +31,16 @@ import java.util.Map;
 public interface DataValidator {
 
     /**
+     * Sets how many data rows (counted from the first data row) dropdown validations and
+     * formula pre-fill should cover. Implementations default to 1000 when unset.
+     *
+     * @param rowCount the number of data rows to cover; values &lt; 1 are ignored
+     */
+    default void setValidationRowCount(int rowCount) {
+        // default: implementation keeps its built-in coverage
+    }
+
+    /**
      * Sets the index of the hidden data sheet used to store dropdown list source values.
      * Each validator instance is bound to exactly one list sheet; this method allows the
      * sheet index to be updated when multiple sheets are being generated.

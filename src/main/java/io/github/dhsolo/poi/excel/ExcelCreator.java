@@ -154,12 +154,15 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     // ===== Strategy chain: cell rendering =====
-    private final List<CellValueResolver> resolvers = Arrays.asList(
+    // Sorted by getOrder() so the documented priority (Picture 50 > Handler 100 > Translate 200
+    // > Plain) actually drives matching; the list used to be matched in hard-coded order, which
+    // let a handler hijack an @ExcelImage column and desync the multi-picture layout.
+    private final List<CellValueResolver> resolvers = java.util.stream.Stream.of(
             new HandlerCellResolver(),
             new PictureCellResolver(),
             new TranslateCellResolver(),
             new PlainCellResolver()
-    );
+    ).sorted(Comparator.comparingInt(CellValueResolver::getOrder)).collect(Collectors.toList());
 
     /**
      * Per-column resolver cache. The resolver for a column depends only on its
@@ -184,6 +187,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private Integer rowHeight;
     private Drawing drawing;
     private int rowNum;
+    /** Absolute row where the data block starts; captured at populateData entry, used by mergeCells. */
+    private int firstDataRowNum;
+    /** True when this instance created {@link #book} itself (vs. wrapping or being stitched into a shared one). */
+    private boolean ownsBook;
+    /** True when this instance was counted in {@link #INSTANCE_COUNT}; makes close() idempotent. */
+    private boolean countedInstance;
     private boolean excelCreated = false;
     private boolean isBigData = false;
 
@@ -209,6 +218,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private int headerRowHeight = DEFAULT_ROW_HEIGHT;
     private int imageReadTimeOut;
     private int pictureType = 0;
+    /** Data rows (from the first data row) covered by dropdown validations / formula pre-fill. */
+    private int validationRowCount = 1000;
 
     // ===== Mapping and merging =====
     private Map<Integer, ExcelModel> columnMappingInfo = new LinkedHashMap<>();
@@ -232,8 +243,23 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     // ===== Column widths =====
     private boolean isSettingColumnWidth = false;
+    /** Widths keyed by PHYSICAL column (user-facing {@link #setColumnWidth} semantics). */
     private Map<Integer, Integer> columnWidthMap = new HashMap<>();
+    /**
+     * Widths declared via {@code @ExcelColumn(columnWidth)}, keyed by DATA column index.
+     * Folded into {@link #columnWidthMap} when the header row is written, once the physical
+     * layout (order block, multi-picture expansion) is known.
+     */
+    private final Map<Integer, Integer> annotationWidthInfo = new HashMap<>();
     private boolean autoSizeColumns = false;
+
+    /**
+     * Extra physical columns created by multi-picture expansion in THIS creator's section,
+     * keyed by data column index. Captured per creator because the shared picture handler's
+     * mapping accumulates entries from every section of a complex sheet, whose data-column
+     * key spaces would otherwise collide.
+     */
+    private Map<Integer, Integer> sectionColumnMaxMapping = new HashMap<>();
 
     // ==================== Constructors ====================
 
@@ -302,6 +328,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     /**
      * Creates an {@code ExcelCreator} that wraps an externally created {@link Workbook}.
      * <p>Useful for attaching this creator to a workbook that already has sheets.
+     * <p><strong>Limitations:</strong> this constructor performs no helper initialisation —
+     * the picture handler, data validator, exporter, and pipeline are not created. It is
+     * intended for lightweight workbook access (styles, fonts); full exports — in particular
+     * child sheets carrying pictures — should go through the workbook-creating constructors.
      *
      * @param book an existing POI {@link Workbook} instance
      */
@@ -516,25 +546,26 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         Map<Integer, ExcelModel> mapping = new HashMap<>();
         List<ExcelModel> models = prop.getExcelModels();
         if (models != null && models.size() > 0) {
-            models.forEach(m -> {
-                mapping.put(mapping.size(), m);
-                m.setRealIndex(info.needOrder()
-                        ? mapping.size() + 1 + (orderColumnSpan - 1)
-                        : mapping.size());
-            });
+            models.forEach(m -> mapping.put(mapping.size(), m));
         }
+        // Order matters: realIndex (the physical column used by dropdown/formula validation) is
+        // computed by adjustExcelModelIndex from needOrderNum + orderColumnSpan, so the span must
+        // be set before the mapping and the order flag trigger that recomputation.
+        this.orderColumnSpan = info.orderColumnSpan();
         setColumnMappingInfo(mapping);
         Map<Integer, Integer> widthInfo = prop.getColumnWidthInfo();
         if (widthInfo != null && !widthInfo.isEmpty()) {
-            widthInfo.forEach((col, charWidth) -> columnWidthMap.put(col, charWidth * 255));
+            // Keyed by data column; translated to physical columns when the header is written
+            // (the order block and any multi-picture expansion shift the physical layout).
+            widthInfo.forEach((col, charWidth) -> annotationWidthInfo.put(col, charWidth * 255));
         }
         this.noneCellDefaultValue = info.noneCellDefaultValue();
         this.sheetName = info.sheetName();
         this.currentExcelType = info.excelType();
         this.setNeedOrderNum(info.needOrder());
-        this.orderColumnSpan = info.orderColumnSpan();
         this.pictureType = info.pictureInnerType();
         this.imageReadTimeOut = info.imageReadTimeOut();
+        if (info.validateRowCount() > 0) this.validationRowCount = info.validateRowCount();
         setTitleRowHeight(info.titleHeight());
         setHeaderRowHeight(info.headerHeight());
         setImagesSeparator(Reflect.hasText(info.imageSeparator()) ? info.imageSeparator() : ",");
@@ -543,7 +574,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private void initHelpers() {
         // styleManager is built by the defaultCellStyle() call that immediately follows
         // initHelpers() in createWorkBook(); no need to create a throwaway one here.
-        INSTANCE_COUNT.incrementAndGet();
+        // Count each instance at most once: a re-init via the public createWorkBook(String,
+        // boolean) used to double-count and keep the shared download pool alive forever.
+        if (!countedInstance) {
+            countedInstance = true;
+            INSTANCE_COUNT.incrementAndGet();
+        }
         pictureHandler = new DefaultPictureHandler(book, currentExcelType, sheet, drawing,
                 imagesSeparator, getOrCreateExecutor(), this);
         pictureHandler.setPictureType(pictureType);
@@ -552,6 +588,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         dataValidator = new DefaultDataValidator(book, sheet, currentExcelType, hiddenSheetListBox,
                 isBigData, existNamaManager, atomicInteger, columnNameModelMappingInfo);
         dataValidator.setCurrentListNum(currentListNum);
+        dataValidator.setValidationRowCount(validationRowCount);
 
         exporter = new DefaultExcelExporter(book, currentExcelType);
         pipeline = new ExcelCreatePipeline(this);
@@ -611,8 +648,29 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     void preparePictureData() {
         List<?> dataList = resolveDataList();
         pictureHandler.checkPictureMaxSize(columnMappingInfo, dataList, header, needOrderNum, orderColumnSpan);
-        String[] expandedHeader = pictureHandler.expandHeaderForPictures(header);
+        // The handler is shared across the sections of a complex sheet and its global mapping
+        // mixes every section's (colliding) data-column keys; layout decisions for this section
+        // must use only the entries this section contributed.
+        sectionColumnMaxMapping = new HashMap<>(pictureHandler.getSectionColumnMaxMapping());
+        String[] expandedHeader = pictureHandler.expandHeaderForPictures(header, sectionColumnMaxMapping);
         if (expandedHeader != header) header = expandedHeader;
+        if (!sectionColumnMaxMapping.isEmpty()) {
+            // Multi-picture expansion shifts physical columns; refresh each model's realIndex
+            // (the column targeted by dropdown/formula validation) now that the layout is known.
+            columnMappingInfo.forEach((dataIdx, model) -> model.setRealIndex(physicalColumn(dataIdx)));
+        }
+    }
+
+    /**
+     * Translates a data-column index to its physical sheet column in this creator's section:
+     * the order block and the extra columns of multi-picture expansion to its left both shift it.
+     */
+    private int physicalColumn(int dataIdx) {
+        int physical = dataIdx + (needOrderNum ? orderColumnSpan : 0);
+        for (Map.Entry<Integer, Integer> pic : sectionColumnMaxMapping.entrySet()) {
+            if (pic.getKey() < dataIdx) physical += pic.getValue();
+        }
+        return physical;
     }
 
     /**
@@ -638,6 +696,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     void populateData() {
         List<?> data = resolveDataList();
+        // Capture where the data block actually starts (headers/title/custom rows are all
+        // written by now). mergeCells uses this instead of re-deriving the layout.
+        firstDataRowNum = rowNum;
         CellStyle dataCellStyle = styleManager.getCellStyle();
 
         for (int i = 0; i < data.size(); i++) {
@@ -648,7 +709,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
             int length = header.length;
             if (needOrderNum) length += 1 + (orderColumnSpan - 1);
-            int max = 0;
+            int orderOffset = needOrderNum ? orderColumnSpan : 0;
+            // Cumulative count of extra physical columns created by multi-picture expansion in
+            // THIS row so far. It must accumulate across columns: overwriting it per column used
+            // to desync the physical-to-data column mapping for every column after the first
+            // one following an expanded picture column.
+            int pictureOffset = 0;
 
             for (int j = 0; j < length; j++) {
                 cell = row.getCell(j);
@@ -658,22 +724,24 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 if (needOrderNum && j < orderColumnSpan) {
                     cell.setCellValue(i + 1);
                 } else {
-                    ExcelModel excelModel;
-                    if (needOrderNum) {
-                        excelModel = columnMappingInfo.get(j - max - 1 - (orderColumnSpan - 1));
-                    } else {
-                        excelModel = columnMappingInfo.get(j - max);
+                    int dataIdx = j - pictureOffset - orderOffset;
+                    ExcelModel excelModel = columnMappingInfo.get(dataIdx);
+                    if (excelModel == null) {
+                        // Should be unreachable; loud trace so a future physical/data column
+                        // desync does not silently produce blank cells.
+                        logger.warn("No column model for physical column {} (data column {}); cell left blank", j, dataIdx);
+                        continue;
                     }
 
                     CellResolveContext ctx = new CellResolveContext(
-                            this, this, cell, row, sheet, excelModel, obj, j, i,
-                            rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler);
+                            this, this, cell, row, sheet, excelModel, obj, j, dataIdx, i,
+                            rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler,
+                            sectionColumnMaxMapping);
 
                     CellValueResolver resolver = resolverFor(excelModel);
-                    if (resolver != null) {
-                        max = resolver.resolve(ctx);
-                    }
-                    j += max;
+                    int extra = resolver != null ? resolver.resolve(ctx) : 0;
+                    pictureOffset += extra;
+                    j += extra;
 
                     if (needOrderNum && j == orderColumnSpan && orderColumnSpan > 1) {
                         setMergeColumn(rowNum + i, rowNum + i, 0, orderColumnSpan - 1);
@@ -697,6 +765,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.isChildComplex = true;
             ec.sheet = sheet;
             ec.rowNum = rowNum;
+            ec.disposeOwnStreamingBook();
             ec.book = book;
             ec.child = null;
             ec.drawing = drawing;
@@ -706,6 +775,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.existNamaManager = existNamaManager;
             ec.atomicInteger.set(atomicInteger.get());
             if (pictureHandler != null) ec.pictureHandler = pictureHandler;
+            // Complex children never run initHelpers, so without this their dropdown/cascade/
+            // formula validations were silently skipped (dataValidator == null).
+            ec.dataValidator = buildChildValidator(ec, sheet);
             ec.defaultCellStyle();
             ec.createExcel();
             if (pictureHandler != null && !pictureHandler.hasPicture() && ec.pictureHandler.hasPicture()) {
@@ -713,6 +785,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             }
             rowNum = ec.rowNum;
             currentDiyContextRow = ec.currentDiyContextRow;
+            currentListNum = ec.currentListNum;
+            atomicInteger.set(ec.atomicInteger.get());
             ex.set(ec);
         });
     }
@@ -820,6 +894,11 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         }
 
         if (header != null && header.length > 0 && needHandle) {
+            // Fold @ExcelColumn(columnWidth) widths (data-keyed) into the physical-keyed map now
+            // that the physical layout (order block, multi-picture expansion) is final. Explicit
+            // setColumnWidth calls (already physical) win over annotation widths.
+            annotationWidthInfo.forEach((dataIdx, width) ->
+                    columnWidthMap.putIfAbsent(physicalColumn(dataIdx), width));
             row = sheet.createRow(rowNum);
             row.setHeight((short) headerRowHeight);
             int length = header.length;
@@ -834,10 +913,13 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 sheet.setColumnWidth(i, cw != null ? cw : DEFAULT_COLUMN_WIDTH * 255);
                 if (needOrderNum && i < orderColumnSpan) {
                     cell.setCellValue("序号");
-                } else if (needOrderNum && i == orderColumnSpan && orderColumnSpan > 1) {
-                    setMergeColumn(rowNum, rowNum, 0, orderColumnSpan - 1);
+                    if (i == orderColumnSpan - 1 && orderColumnSpan > 1) {
+                        setMergeColumn(rowNum, rowNum, 0, orderColumnSpan - 1);
+                    }
                 } else {
-                    int idx = needOrderNum ? i - 1 : i;
+                    // Skip the whole order block, not just one column: with orderColumnSpan > 1
+                    // the old "i - 1" read past the end of the header array.
+                    int idx = needOrderNum ? i - orderColumnSpan : i;
                     if (headerName == null) {
                         headerName = header[idx];
                         startColumn = endColumn = i;
@@ -899,18 +981,20 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     // ==================== Cell merging ====================
 
     void mergeCells() {
-        if (tileCellRangeAddress != null) sheet.addMergedRegion(tileCellRangeAddress);
+        // POI rejects single-cell merged regions; a one-column sheet with a title produces one.
+        if (tileCellRangeAddress != null && tileCellRangeAddress.getNumberOfCells() > 1) {
+            sheet.addMergedRegion(tileCellRangeAddress);
+        }
         if (!diyRowContextCellRangeAddress.isEmpty())
             diyRowContextCellRangeAddress.forEach(f -> sheet.addMergedRegion(f));
-        int baseRowNum = 0;
-        if (title != null && title.trim().length() != 0) baseRowNum++;
-        if (header != null && header.length != 0) baseRowNum++;
-        baseRowNum += diyRowContextCellModelMap.size();
+        // First data row as actually written (captured at populateData entry). Re-deriving it
+        // from the title/diy/grouped-header layout rules kept desyncing from writeHeaderAndTitle
+        // (grouped headers, title-less custom rows, complex multi-section sheets).
+        int baseRowNum = firstDataRowNum;
         if (columnMergeInfo != null) {
             for (Map.Entry<Integer, String> entry : columnMergeInfo.entrySet()) {
-                int indexColumn = entry.getKey();
+                int indexColumn = physicalColumn(entry.getKey());
                 int index = 0;
-                if (needOrderNum) indexColumn++;
                 String field = entry.getValue();
                 List dataList = resolveDataList();
                 Object currentValue = null;
@@ -964,15 +1048,32 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.currentListNum = concurrentRowNum;
             ec.existNamaManager = existNamaManager;
             ec.atomicInteger.set(atomicInteger.get());
+            // The child is stitched into this workbook; its own (now unused) workbook would
+            // otherwise leak SXSSF temp files in big-data mode.
+            ec.disposeOwnStreamingBook();
             ec.book = book;
             ec.sheet = ec.sheetName != null && ec.sheetName.length() > 0
                     ? ec.book.createSheet(ec.sheetName) : ec.book.createSheet();
             ec.drawing = ec.sheet.createDrawingPatriarch();
             ec.currentExcelType = currentExcelType;
             ec.hiddenSheetListBox = hiddenSheetListBox;
+            // The helpers the child built in initHelpers() are bound to its discarded original
+            // workbook/sheet — pictures and validations would land in an orphaned book.
+            // Share the parent's picture handler (download dir, image numbering, and ZIP
+            // staging are coordinated workbook-wide), bound to the child's sheet, and rebuild
+            // the validator against the shared workbook + the child's sheet.
+            if (pictureHandler != null) {
+                pictureHandler.bindSheet(ec.sheet, ec.drawing);
+                ec.pictureHandler = pictureHandler;
+            }
+            ec.dataValidator = buildChildValidator(ec, ec.sheet);
+            // Marking the child "complex" suppresses its own picture-dir creation and
+            // post-processing — the parent owns both for the shared handler.
+            ec.isChildComplex = true;
             ec.defaultCellStyle();
             ec.createExcel();
             concurrentRowNum = ec.currentListNum;
+            atomicInteger.set(ec.atomicInteger.get());
         }
         currentListNum = concurrentRowNum;
     }
@@ -991,11 +1092,26 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         return complexExcelCreatorList.get(index);
     }
 
+    /**
+     * Builds a data validator for a child creator (appended sheet or complex section) against
+     * the shared workbook and the sheet its validations must target, wiring in the shared
+     * hidden list sheet, name registry, and the child's own column models and counters.
+     */
+    private DataValidator buildChildValidator(ExcelCreator ec, Sheet targetSheet) {
+        DataValidator validator = new DefaultDataValidator(book, targetSheet, currentExcelType,
+                hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
+                ec.columnNameModelMappingInfo);
+        validator.setCurrentListNum(ec.currentListNum);
+        validator.setValidationRowCount(ec.validationRowCount);
+        return validator;
+    }
+
     private List<?> resolveDataList() {
-        List<Object> data = new LinkedList<>();
-        if (object instanceof Map<?, ?> m) data.add(m);
-        else if (object instanceof List<?> l) data.addAll(l);
-        return data;
+        // Read-only view; called once per pipeline step plus once per merge column, so avoid
+        // copying the (possibly large) data list every time.
+        if (object instanceof List<?> l) return l;
+        if (object instanceof Map<?, ?> m) return List.of(m);
+        return List.of();
     }
 
     // ==================== Workbook creation (strategy pattern) ====================
@@ -1008,7 +1124,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     private void createWorkBook(WorkbookStrategy strategy) {
+        disposeOwnStreamingBook(); // a re-init replaces the workbook; drop the old one's temp files
         book = strategy.createWorkbook();
+        ownsBook = true;
         currentExcelType = strategy.getExcelType();
         isBigData = strategy.isBigData();
         sheet = (sheetName != null && sheetName.trim().length() > 0)
@@ -1376,7 +1494,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             if (!Reflect.hasText(m.getColumnName()) && header != null && header.length > key)
                 m.setColumnName(header[key]);
             if (m.getIndex() == 0) m.setIndex(key);
-            m.setRealIndex(needOrderNum ? count.getAndIncrement() + 1 : count.getAndIncrement());
+            // realIndex = physical sheet column: shift by the whole order block, not just one.
+            m.setRealIndex(needOrderNum ? count.getAndIncrement() + orderColumnSpan : count.getAndIncrement());
             columnNameModelMappingInfo.put(m.getFieldName(), m);
         });
     }
@@ -1490,6 +1609,21 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     public void setImageReadTimeOut(int t) { imageReadTimeOut = t; }
 
     /**
+     * Sets how many data rows (counted from the first data row) dropdown-list validations and
+     * {@code @ExcelFormula} formula pre-fill cover. Defaults to {@code 1000}; rows beyond the
+     * count carry no validation/formula. Annotation models can set this via
+     * {@code @ExcelInfo(validateRowCount = ...)}.
+     *
+     * @param rowCount the number of data rows to cover; values &lt; 1 are ignored
+     */
+    public void setValidationRowCount(int rowCount) {
+        if (rowCount > 0) {
+            validationRowCount = rowCount;
+            if (dataValidator != null) dataValidator.setValidationRowCount(rowCount);
+        }
+    }
+
+    /**
      * Sets the width of a specific column and records it in the internal width map.
      *
      * @param ci the zero-based column index
@@ -1601,7 +1735,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      *
      * @param span the column span count for the order-number cell
      */
-    public void setOrderColumnSpan(int span) { orderColumnSpan = span; }
+    public void setOrderColumnSpan(int span) { orderColumnSpan = span; adjustExcelModelIndex(); }
 
     /**
      * Sets the placeholder text written to cells whose resolved value is {@code null} or empty.
@@ -1715,29 +1849,57 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     /**
      * Releases resources held by this instance.
-     * <p>Cleans up any temporary picture files managed by the {@link PictureHandler}.
-     * When all active {@code ExcelCreator} instances have been closed, the shared
+     * <p>Cleans up any temporary picture files managed by the {@link PictureHandler}, and
+     * disposes the temp files behind a streaming (big-data SXSSF) workbook this creator owns.
+     * <p><strong>Call order:</strong> close only after the export/upload step — in big-data
+     * mode the streaming workbook's flushed rows live in those temp files, so an export after
+     * {@code close()} would be incomplete.
+     * <p>When all active {@code ExcelCreator} instances have been closed, the shared
      * image-download thread pool is gracefully shut down (30-second timeout, then forced).
-     * <p>It is safe to call this method more than once; subsequent calls after the first
-     * are no-ops for the thread pool.
+     * <p>It is safe to call this method more than once; repeated calls are no-ops.
      */
     public void close() {
         if (pictureHandler != null) pictureHandler.cleanup();
+        if (exporter != null) exporter.close();
+        disposeOwnStreamingBook();
         // GETTER_CACHE is a static shared cache; do not clear it on instance close to avoid affecting other concurrent instances
-        if (INSTANCE_COUNT.decrementAndGet() <= 0) {
-            synchronized (ExcelCreator.class) {
-                if (executor != null && !executor.isShutdown()) {
-                    executor.shutdown();
-                    try {
-                        if (!executor.awaitTermination(30, TimeUnit.SECONDS)) executor.shutdownNow();
-                    } catch (InterruptedException ie) {
-                        executor.shutdownNow();
-                        Thread.currentThread().interrupt();
+        // Only instances counted in initHelpers() may decrement: a wrapper creator built via
+        // ExcelCreator(Workbook) was never counted, and a double close() must not decrement
+        // twice — either would drive the count negative and shut the shared download pool
+        // down underneath other active exports.
+        if (countedInstance) {
+            countedInstance = false;
+            if (INSTANCE_COUNT.decrementAndGet() <= 0) {
+                synchronized (ExcelCreator.class) {
+                    if (executor != null && !executor.isShutdown()) {
+                        executor.shutdown();
+                        try {
+                            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) executor.shutdownNow();
+                        } catch (InterruptedException ie) {
+                            executor.shutdownNow();
+                            Thread.currentThread().interrupt();
+                        }
+                        executor = null;
                     }
-                    executor = null;
                 }
             }
         }
         logger.debug("ExcelCreator resources closed");
+    }
+
+    /**
+     * Disposes the temp files behind a streaming (SXSSF) workbook this creator owns.
+     * No-op for non-streaming workbooks or when the workbook was created elsewhere
+     * (wrapped via {@code ExcelCreator(Workbook)} or replaced by sheet stitching).
+     */
+    private void disposeOwnStreamingBook() {
+        if (ownsBook && book instanceof org.apache.poi.xssf.streaming.SXSSFWorkbook sx) {
+            try {
+                sx.dispose();
+            } catch (Exception e) {
+                logger.warn("Failed to dispose streaming workbook temp files", e);
+            }
+        }
+        ownsBook = false;
     }
 }

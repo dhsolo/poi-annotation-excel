@@ -39,6 +39,9 @@ import org.apache.poi.ss.usermodel.Sheet;
  * @param model                column metadata describing how this cell should be rendered
  * @param dataObj              the row data object from which the cell value is extracted
  * @param colIndex             0-based physical column index of {@code cell} in the sheet
+ * @param dataColIndex         0-based data-column index (the {@code columnMappingInfo} key);
+ *                             differs from {@code colIndex} when an order column or the extra
+ *                             columns of an earlier multi-picture expansion shift the layout
  * @param rowIndex             0-based data-row index (offset from the first data row)
  * @param rowNum               absolute 0-based row number of the first data row in the sheet;
  *                             the cell's sheet row is {@code rowNum + rowIndex}
@@ -48,6 +51,9 @@ import org.apache.poi.ss.usermodel.Sheet;
  *                             any extra cells created by multi-picture expansion
  * @param pictureHandler       handler responsible for downloading and embedding images;
  *                             may be a no-op implementation when no picture columns are present
+ * @param sectionColumnMax     multi-picture expansion mapping (data column → extra columns) of
+ *                             the current creator's section; {@code null} to fall back to the
+ *                             handler's cross-section mapping
  * @author dhsolo
  * @since 1.0
  */
@@ -60,9 +66,35 @@ public record CellResolveContext(
         ExcelModel model,
         Object dataObj,
         int colIndex,
+        int dataColIndex,
         int rowIndex,
         int rowNum,
         String noneCellDefaultValue,
         CellStyle dataCellStyle,
-        PictureHandler pictureHandler
-) {}
+        PictureHandler pictureHandler,
+        java.util.Map<Integer, Integer> sectionColumnMax
+) {
+
+    /**
+     * Compatibility constructor predating {@code dataColIndex} and {@code sectionColumnMax};
+     * defaults them to {@code colIndex} and {@code null} (correct whenever no order column or
+     * multi-picture expansion shifts the layout).
+     */
+    public CellResolveContext(
+            CellValueSetter cellValueSetter,
+            ValueExtractor valueExtractor,
+            Cell cell,
+            Row row,
+            Sheet sheet,
+            ExcelModel model,
+            Object dataObj,
+            int colIndex,
+            int rowIndex,
+            int rowNum,
+            String noneCellDefaultValue,
+            CellStyle dataCellStyle,
+            PictureHandler pictureHandler) {
+        this(cellValueSetter, valueExtractor, cell, row, sheet, model, dataObj,
+                colIndex, colIndex, rowIndex, rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler, null);
+    }
+}

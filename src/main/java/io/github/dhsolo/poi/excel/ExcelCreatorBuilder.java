@@ -54,6 +54,7 @@ public class ExcelCreatorBuilder {
     private boolean needOrderNum = false;
     private int orderColumnSpan = 1;
     private Integer rowHeight;
+    private Integer validationRowCount;
     private int titleRowHeight = 1000;
     private int headerRowHeight = 1000;
     private int pictureType = AnchorType.MOVE_AND_RESIZE.getValue();
@@ -189,6 +190,18 @@ public class ExcelCreatorBuilder {
      */
     public ExcelCreatorBuilder rowHeight(int rowHeight) {
         this.rowHeight = rowHeight;
+        return this;
+    }
+
+    /**
+     * Sets how many data rows (counted from the first data row) dropdown-list validations
+     * and formula pre-fill cover. Defaults to {@code 1000}.
+     *
+     * @param rowCount the number of data rows to cover; must be &gt;= 1
+     * @return this builder for method chaining
+     */
+    public ExcelCreatorBuilder validationRowCount(int rowCount) {
+        this.validationRowCount = rowCount;
         return this;
     }
 
@@ -523,6 +536,7 @@ public class ExcelCreatorBuilder {
         creator.setImageReadTimeOut(imageReadTimeOut);
         creator.setImagesSeparator(imagesSeparator);
         if (rowHeight != null) creator.setRowHeight(rowHeight);
+        if (validationRowCount != null) creator.setValidationRowCount(validationRowCount);
         if (!columnMappingInfo.isEmpty()) creator.setColumnMappingInfo(columnMappingInfo);
         if (!columnMergeInfo.isEmpty()) creator.setColumnMergeInfo(columnMergeInfo);
         if (!child.isEmpty()) creator.setChild(child);

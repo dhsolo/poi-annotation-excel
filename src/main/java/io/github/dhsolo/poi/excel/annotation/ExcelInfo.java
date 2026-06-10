@@ -125,11 +125,22 @@ public @interface ExcelInfo {
 	int pictureInnerType() default ExcelCreator.MOVE_AND_RESIZE;
 
 	/**
-	 * Whether to use the big-data (streaming) workbook strategy ({@code SXSSFWorkbook})
-	 * for export, which reduces memory usage for large datasets.
-	 * Defaults to {@code true}.
+	/**
+	 * Whether to build the workbook with the streaming SXSSF writer. <strong>Defaults to
+	 * {@code true}</strong>: rows are flushed to temp files in a sliding window, keeping memory
+	 * flat for large exports, but earlier rows cannot be revisited and the workbook returned by
+	 * {@code getWorkBook()} is an SXSSF instance. Set {@code false} for a fully in-memory XSSF
+	 * workbook with random access (small/medium exports, post-processing scenarios).
 	 */
 	boolean isBigData() default true;
+
+	/**
+	 * Number of data rows (counted from the first data row) covered by dropdown-list
+	 * validations and {@code @ExcelFormula} formula pre-fill. Rows beyond this count carry
+	 * no validation/formula. Increase for templates expected to receive more rows; decrease
+	 * to keep small templates lean.
+	 */
+	int validateRowCount() default 1000;
 
 	/**
 	 * Image resize settings applied globally to all image columns in this sheet.

@@ -17,6 +17,8 @@ package io.github.dhsolo.poi.excel.picture;
 
 import io.github.dhsolo.poi.excel.ExcelModel;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Drawing;
+import org.apache.poi.ss.usermodel.Sheet;
 
 import java.io.File;
 import java.util.List;
@@ -150,6 +152,53 @@ public interface PictureHandler {
      * @return column-index → max-image-count map
      */
     Map<Integer, Integer> getColumnMaxMapping();
+
+    /**
+     * Returns the column-expansion mapping computed by the most recent
+     * {@link #checkPictureMaxSize} call only. On a complex multi-section sheet the handler is
+     * shared and {@link #getColumnMaxMapping()} accumulates entries from every section, whose
+     * data-column key spaces collide; per-section layout decisions must use this view instead.
+     *
+     * @return column-index → max-extra-image-count map for the last analysed section
+     */
+    default Map<Integer, Integer> getSectionColumnMaxMapping() {
+        return getColumnMaxMapping();
+    }
+
+    /**
+     * Variant of {@link #expandHeaderForPictures(String[])} driven by an explicit expansion
+     * mapping (typically {@link #getSectionColumnMaxMapping()}), so a section of a complex
+     * sheet is not expanded by another section's entries.
+     *
+     * <p><strong>Implementations should override this method.</strong> The default merely
+     * delegates to the single-argument variant and ignores {@code columnMax}, which is only
+     * correct for single-section sheets.
+     *
+     * @param header    the header labels to expand
+     * @param columnMax column-index → max-extra-image-count map to apply
+     * @return the expanded header (the same array when no expansion applies)
+     */
+    default String[] expandHeaderForPictures(String[] header, Map<Integer, Integer> columnMax) {
+        return expandHeaderForPictures(header);
+    }
+
+    /**
+     * Rebinds the sheet (and its drawing patriarch) that subsequent picture anchors target.
+     * One handler instance is shared across all sheets of a workbook so that the download
+     * directory, image numbering, and ZIP staging stay coordinated; each child sheet binds
+     * itself here before its data is populated.
+     *
+     * <p><strong>Implementations should override this method.</strong> The default is a no-op,
+     * which is only correct for single-sheet handlers — without an override, anchors of every
+     * child sheet would land on the sheet the handler was originally constructed with.
+     *
+     * @param sheet   the sheet new anchors should land on
+     * @param drawing that sheet's drawing patriarch
+     */
+    @SuppressWarnings("rawtypes")
+    default void bindSheet(Sheet sheet, Drawing drawing) {
+        // default: single-sheet handlers need no rebinding
+    }
 
     /** Returns the filesystem path of the temporary image download directory. */
     String getCurrentPictureDownLoadDir();

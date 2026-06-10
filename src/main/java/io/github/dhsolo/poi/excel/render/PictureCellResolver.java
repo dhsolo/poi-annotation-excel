@@ -75,7 +75,13 @@ public class PictureCellResolver implements CellValueResolver {
                 ctx.colIndex(), ctx.rowNum() + ctx.rowIndex(),
                 imageUrl, ctx.cell());
 
-        var columnMaxNum = ctx.pictureHandler().getColumnMaxMapping().get(ctx.colIndex());
+        // Keyed by DATA column index (see checkPictureMaxSize), not by the physical column,
+        // which may be shifted by an order column or earlier picture expansion. Prefer the
+        // current section's mapping: the handler's cross-section view mixes the colliding
+        // key spaces of every section of a complex sheet.
+        var sectionMax = ctx.sectionColumnMax() != null
+                ? ctx.sectionColumnMax() : ctx.pictureHandler().getColumnMaxMapping();
+        var columnMaxNum = sectionMax.get(ctx.dataColIndex());
         if (columnMaxNum != null) {
             max = columnMaxNum;
             int addIndex = max;

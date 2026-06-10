@@ -19,6 +19,7 @@ import io.github.dhsolo.poi.excel.ExcelModel;
 import io.github.dhsolo.poi.excel.cascade.CascadeValidateItemWrapper;
 import io.github.dhsolo.poi.excel.cascade.CascadeValidateModelWrapper;
 import io.github.dhsolo.poi.excel.exception.ExcelColumnNotFoundException;
+import io.github.dhsolo.poi.excel.exception.ExcelException;
 import org.apache.poi.hssf.usermodel.HSSFDataValidationHelper;
 import org.apache.poi.hssf.usermodel.HSSFSheet;
 import org.apache.poi.ss.usermodel.*;
@@ -55,6 +56,8 @@ public class DefaultDataValidator implements DataValidator {
     private final Map<String, ExcelModel> columnNameModelMappingInfo;
     private int currentListNum;
     private int rowNum;
+    /** Data rows (from the first data row) covered by dropdowns/formula pre-fill. */
+    private int validationRowCount = 1000;
 
     private DataValidationConstraint listBoxValidate;
 
@@ -74,6 +77,52 @@ public class DefaultDataValidator implements DataValidator {
         this.existNamaManager = existNamaManager;
         this.atomicInteger = atomicInteger;
         this.columnNameModelMappingInfo = columnNameModelMappingInfo;
+    }
+
+    /** Replacement character used when sanitising cascade option values into defined names. */
+    private static final char NAME_SUBSTITUTE = '_';
+
+    @Override
+    public void setValidationRowCount(int rowCount) {
+        if (rowCount > 0) {
+            this.validationRowCount = rowCount;
+        }
+    }
+
+    /**
+     * Replaces every character Excel forbids in a defined name (anything other than
+     * letters, digits, {@code '.'} and {@code '_'}) with {@link #NAME_SUBSTITUTE}, recording
+     * each distinct substituted character so the dropdown formula can mirror the substitution
+     * with {@code SUBSTITUTE(...)} — the INDIRECT lookup only resolves when the concatenated
+     * cell text and the registered name stay literally identical.
+     */
+    private static String sanitizeNamePath(String raw, Set<Character> substituted) {
+        StringBuilder sb = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (Character.isLetterOrDigit(ch) || ch == '_' || ch == '.') {
+                sb.append(ch);
+            } else {
+                substituted.add(ch);
+                sb.append(NAME_SUBSTITUTE);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Wraps the formula expression in one {@code SUBSTITUTE} per sanitised character. */
+    private static String mirrorSubstitutions(String expr, Set<Character> substituted) {
+        String result = expr;
+        for (Character ch : substituted) {
+            String literal = ch == '"' ? "\"\"" : String.valueOf(ch);
+            result = "SUBSTITUTE(" + result + ",\"" + literal + "\",\"" + NAME_SUBSTITUTE + "\")";
+        }
+        return result;
+    }
+
+    /** Last sheet row (inclusive) covered by validations, given the current first data row. */
+    private int lastValidationRow() {
+        return rowNum + validationRowCount - 1;
     }
 
     @Override
@@ -97,7 +146,6 @@ public class DefaultDataValidator implements DataValidator {
     @Override
     public void checkListBox(Map<Integer, ExcelModel> columnMappingInfo, boolean needOrderNum, int rowNum) {
         this.rowNum = rowNum;
-        int initNum = needOrderNum ? 1 : 0;
 
         columnMappingInfo.forEach((index, model) -> {
             if (model.isListBox()) {
@@ -177,7 +225,7 @@ public class DefaultDataValidator implements DataValidator {
             strFormula = prefix + columnChar + substring;
         }
         String finalStrFormula1 = strFormula;
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < validationRowCount; i++) {
             int i1 = rowNum + i;
             // Prefer reusing an existing row via getRow to avoid overwriting data rows with createRow
             Row row1 = sheet.getRow(i1) != null ? sheet.getRow(i1) : sheet.createRow(i1);
@@ -273,36 +321,62 @@ public class DefaultDataValidator implements DataValidator {
         String format = String.format("listConstantData!$A$%s:$A$%s", start, currentListNum - 2);
         if (cascadeValidateModel.getParentValue() == null) {
             model.setStrFormula(format);
-            createCellListBoxFormal(rowNum, 1000, realIndex, realIndex, model.getStrFormula(),
+            createCellListBoxFormal(rowNum, lastValidationRow(), realIndex, realIndex, model.getStrFormula(),
                     cascadeValidateModel.isNeedAddTranslationException());
         }
 
         if (needCreateName) {
-            String parentValuePath = findParentValuePath(cascadeValidateModel);
+            String rawPath = findParentValuePath(cascadeValidateModel);
+            if (rawPath == null || rawPath.isEmpty()) {
+                throw new ExcelException("Cascade options that carry a child list must have non-empty values: "
+                        + "the child dropdown's Excel defined name is built from the parent option values");
+            }
+            // Transparently substitute characters Excel forbids in defined names (spaces,
+            // hyphens, ...) and mirror the same substitution into the INDIRECT formulas below,
+            // so common real-world option values just work.
+            Set<Character> substitutedChars = new LinkedHashSet<>();
+            String parentValuePath = sanitizeNamePath(rawPath, substitutedChars);
             if (!Character.isLetter(parentValuePath.charAt(0))) {
                 parentValuePath = "_" + parentValuePath;
                 setParentIsAppendPrefix(cascadeValidateModel);
             }
+            // Excel defined names are case-insensitive ("ABC" and "abc" collide), so dedupe on a
+            // lower-cased key; loop in case the suffixed candidate also collides.
             String pddStr = null;
-            if (existNamaManager.contains(parentValuePath)) {
+            String nameKey = parentValuePath.toLowerCase(Locale.ROOT);
+            while (existNamaManager.contains(nameKey)) {
                 pddStr = getNextChar();
+                nameKey = (parentValuePath + pddStr).toLowerCase(Locale.ROOT);
+            }
+            if (pddStr != null) {
                 parentValuePath += pddStr;
             }
-            existNamaManager.add(parentValuePath);
+            existNamaManager.add(nameKey);
             Name name = book.createName();
-            name.setNameName(parentValuePath);
+            try {
+                name.setNameName(parentValuePath);
+            } catch (IllegalArgumentException e) {
+                // Fail fast with the offending option chain instead of surfacing a bare POI error:
+                // Excel defined names allow letters/digits/'.'/'_' only, are capped at 255
+                // characters, and must not look like a cell reference (e.g. "A1").
+                throw new ExcelException("Cascade dropdown cannot register the Excel defined name '"
+                        + parentValuePath + "' (concatenated from the parent option values): "
+                        + e.getMessage() + ". Adjust the cascade option values accordingly", e);
+            }
             name.setRefersToFormula(format);
             if (!existINDIRECT.containsKey(realIndex)) {
-                CellRangeAddressList regions = new CellRangeAddressList(rowNum, 1000, realIndex, realIndex);
-                String cellListBoxFormal = createCellListBoxFormal(rowNum, 1000, realIndex, realIndex, cascadeValidateModel, pddStr);
+                CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
+                String cellListBoxFormal = createCellListBoxFormal(rowNum, lastValidationRow(), realIndex, realIndex, cascadeValidateModel, pddStr);
+                cellListBoxFormal = mirrorSubstitutions(cellListBoxFormal, substitutedChars);
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.computeIfAbsent(realIndex, k -> new LinkedHashMap<>());
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(
                         cascadeValidateModel.getParentValue().getOwnModel().getExcelModel().getFieldName(), k -> new LinkedHashMap<>());
                 stringCellRangeAddressListMap.put(cellListBoxFormal, regions);
             } else {
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.get(realIndex);
-                CellRangeAddressList regions = new CellRangeAddressList(rowNum, 1000, realIndex, realIndex);
+                CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
                 String cellListBoxFormal = generateFormal(rowNum + 1, cascadeValidateModel, pddStr);
+                cellListBoxFormal = mirrorSubstitutions(cellListBoxFormal, substitutedChars);
                 cellListBoxFormal = String.format("IF(%s=\"%s\",%s,@@)", cellListBoxFormal, parentValuePath, cellListBoxFormal);
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(
                         cascadeValidateModel.getParentValue().getOwnModel().getExcelModel().getFieldName(), k -> new LinkedHashMap<>());

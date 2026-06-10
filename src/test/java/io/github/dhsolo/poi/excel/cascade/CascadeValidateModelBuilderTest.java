@@ -115,11 +115,11 @@ class CascadeValidateModelBuilderTest {
     }
 
     @Test
-    void TestExcelCascade(){
+    void TestExcelCascade(@org.junit.jupiter.api.io.TempDir java.io.File tmp){
         Cascade cascade = new Cascade();
         ExcelCreator creator = new ExcelCreator(cascade);
         creator.createExcel();
-        creator.exportLocal("D://cascade.xlsx");
+        creator.exportLocal(new java.io.File(tmp, "cascade.xlsx").getAbsolutePath());
     }
 
     @ExcelInfo

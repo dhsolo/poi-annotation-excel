@@ -63,18 +63,47 @@ public class DefaultExcelExporter implements ExcelExporter {
         isZip = zip;
     }
 
+    /** Workbook re-read from the picture-injected temp file; cached so repeat calls agree. */
+    private Workbook recreatedBook;
+
     @Override
     public Workbook getWorkBook() {
         if (isZip && !isReCreate) {
             try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
-                Workbook recreated = WorkbookFactory.create(fis);
+                recreatedBook = WorkbookFactory.create(fis);
                 isReCreate = true;
-                return recreated;
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
-        return book;
+        // Without the cache a second call returned the original in-memory book, which lacks
+        // the injected pictures — two calls disagreed about the workbook contents.
+        if (isReCreate && recreatedBook == null) {
+            logger.debug("getWorkBook() after close(): returning the original in-memory workbook "
+                    + "(injected pictures are no longer available)");
+        }
+        return activeBook();
+    }
+
+    @Override
+    public void close() {
+        if (recreatedBook != null) {
+            try {
+                recreatedBook.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close re-created workbook", e);
+            }
+            recreatedBook = null;
+        }
+    }
+
+    /**
+     * The workbook whose contents are current: once {@link #getWorkBook()} has re-read the
+     * picture-injected temp file (setting {@code isReCreate}), the original in-memory book no
+     * longer contains the pictures and must not be serialised.
+     */
+    private Workbook activeBook() {
+        return recreatedBook != null ? recreatedBook : book;
     }
 
     @Override
@@ -86,7 +115,7 @@ public class DefaultExcelExporter implements ExcelExporter {
                 }
             } else {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                book.write(baos);
+                activeBook().write(baos);
                 outputStream.write(baos.toByteArray());
             }
             outputStream.flush();
@@ -103,7 +132,7 @@ public class DefaultExcelExporter implements ExcelExporter {
                 data = readFileToMemory();
             } else {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                book.write(baos);
+                activeBook().write(baos);
                 data = baos.toByteArray();
             }
         } finally {
@@ -131,7 +160,7 @@ public class DefaultExcelExporter implements ExcelExporter {
         } else {
             try {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                book.write(baos);
+                activeBook().write(baos);
                 return new ByteArrayInputStream(baos.toByteArray());
             } catch (IOException e) {
                 throw new RuntimeException("Failed to serialize workbook to output stream", e);
@@ -150,7 +179,7 @@ public class DefaultExcelExporter implements ExcelExporter {
                     fis.transferTo(fos);
                 }
             } else {
-                book.write(fos);
+                activeBook().write(fos);
             }
             fos.flush();
             logger.debug("Export successful");
