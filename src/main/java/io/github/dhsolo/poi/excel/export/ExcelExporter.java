@@ -33,6 +33,14 @@ import java.io.OutputStream;
 public interface ExcelExporter {
 
     /**
+     * Releases resources this exporter may hold (e.g. a workbook re-read from the
+     * picture-injected temp file). Called from {@code ExcelCreator.close()}.
+     */
+    default void close() {
+        // default: nothing to release
+    }
+
+    /**
      * Sets the temporary workbook file produced when the export pipeline includes
      * picture embedding and ZIP re-packaging. Must be set before calling any export
      * method when {@link #setZip(boolean)} has been set to {@code true}.
