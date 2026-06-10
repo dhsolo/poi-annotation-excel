@@ -99,6 +99,32 @@ All notable changes to this project are documented here. The format is based on
 - Cascade dropdowns: defined-name deduplication is now case-insensitive (Excel names are);
   parent values differing only by case (`ABC` vs `abc`) no longer crash with
   "The workbook already contains this name".
+- Dropdown/formula validation columns (`realIndex`) shift by the whole order block: with
+  `orderColumnSpan > 1` the validation landed on the wrong physical column (the span was also
+  assigned after the index computation consuming it, so it never took effect).
+- Streaming (`isBigData`) workbooks: `close()` now disposes the SXSSF backing temp files (they
+  used to accumulate until JVM exit); a child sheet stitched into a parent workbook disposes its
+  own abandoned workbook as well.
+- Shared image-download pool accounting is ownership-based: a wrapper creator built via
+  `ExcelCreator(Workbook)` no longer drives the instance count negative on `close()` (which shut
+  the pool down underneath other active exports), double `close()` is idempotent, and a re-init
+  via `createWorkBook` no longer double-counts.
+- The synchronous picture fallback path (taken when the disk-staging directory is unavailable)
+  now goes through the same guarded stream as the async downloader: protocol whitelist,
+  `ImageDownloadPolicy` SSRF checks, timeouts, and the 64 MB size cap (it used to bypass all of
+  them).
+- A sheet with a title and a single column no longer crashes on a one-cell title merge.
+- Cell resolvers are matched in `getOrder()` priority (picture > handler > translate > plain) as
+  documented; a custom handler used to hijack `@ExcelImage` columns and desync multi-picture
+  layouts.
+- Importing a sheet containing non-picture shapes (text boxes etc.) no longer throws
+  `ClassCastException` during picture extraction.
+- `DefaultExcelExporter.getWorkBook()` caches the workbook re-read from the picture-injected
+  temp file, so a second call no longer returns the original picture-less workbook.
+
+### Deprecated
+- `ExcelImportor(Object)`: the constructor reads nothing and yields an unusable instance; use
+  `ExcelImportor(InputStream)`.
 
 ### Security
 - Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).
