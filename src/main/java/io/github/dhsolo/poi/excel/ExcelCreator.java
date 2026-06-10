@@ -905,6 +905,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         int baseRowNum = 0;
         if (title != null && title.trim().length() != 0) baseRowNum++;
         if (header != null && header.length != 0) baseRowNum++;
+        // @ExcelColumnParent adds a grouped-header row above the column header
+        // (written under the same condition in writeHeaderAndTitle).
+        if (parentHeaders != null && !parentHeaders.isEmpty()
+                && header != null && header.length != 0) baseRowNum++;
         baseRowNum += diyRowContextCellModelMap.size();
         if (columnMergeInfo != null) {
             for (Map.Entry<Integer, String> entry : columnMergeInfo.entrySet()) {
