@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-10
+
 ### Added
 - `@ExcelColumnParent` is now implemented: renders a two-row grouped header (parent label merged
   over its child columns). A new `value()` attribute supplies the parent label; child columns read
@@ -59,16 +61,6 @@ All notable changes to this project are documented here. The format is based on
   gating bug forced in-memory image embedding).
 - Windows file-lock failure when injecting images into the temporary workbook ZIP.
 - Javadoc generation on project paths containing non-ASCII characters.
-
-### Security
-- Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).
-- Remote image downloads are restricted to http/https and capped in size.
-- Opt-in SSRF guard (`ImageDownloadPolicy.setBlockPrivateNetworks(true)`) rejects image URLs
-  resolving to loopback/link-local/site-local/private addresses (off by default).
-
-## [1.0.1] - 2026-06-10
-
-### Fixed
 - **Import precision loss**: numeric cell values were silently rounded to 3 fraction digits by
   `NumberFormat.getInstance()` during DOM import (`0.123456789` became `"0.123"`, and date-time
   serial values lost up to ~43 seconds). Values are now converted via `BigDecimal` and keep their
@@ -80,7 +72,8 @@ All notable changes to this project are documented here. The format is based on
   `firstErrorBreak = false`.
 - **`@ExcelColumnParent` + `needMergeCell` crash**: the vertical-merge base row did not account
   for the extra grouped-header row, landing the data merge one row too high and failing with an
-  overlapping-region `IllegalStateException`. The grouped-header row is now counted.
+  overlapping-region `IllegalStateException` (superseded by the captured-first-data-row fix
+  below, which handles this and the related layouts uniformly).
 - **Multi-image column expansion desynced later columns**: the physical-to-data column offset
   created by multi-picture expansion was overwritten per column instead of accumulated, causing a
   `NullPointerException` (or shifted values) once two or more ordinary columns followed a
@@ -88,3 +81,19 @@ All notable changes to this project are documented here. The format is based on
   component (the old constructor signature is preserved), and `PictureCellResolver` looks up the
   per-column image count by data column index, fixing the same desync when an order column
   (`needOrder = true`) shifts the layout.
+- Vertical merges (`needMergeCell`) now use the **actual first data row captured when data
+  population starts**, instead of re-deriving it from the title/custom-row/grouped-header layout
+  rules. This also fixes the merge landing at the top of the sheet for **complex multi-section
+  sheets** and the off-by-one when a before-title custom row exists on a title-less sheet.
+- The `needMergeCell` target column now shifts by the whole order block (`orderColumnSpan`) and
+  by any multi-picture expansion to its left, instead of always shifting by one.
+- `orderColumnSpan > 1` no longer breaks the header row with an
+  `ArrayIndexOutOfBoundsException` (the order-block merge consumed a column and the header
+  label index only skipped one column).
+- `formart` passes `NaN`/`Infinity` through as text instead of failing in `BigDecimal`.
+
+### Security
+- Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).
+- Remote image downloads are restricted to http/https and capped in size.
+- Opt-in SSRF guard (`ImageDownloadPolicy.setBlockPrivateNetworks(true)`) rejects image URLs
+  resolving to loopback/link-local/site-local/private addresses (off by default).
