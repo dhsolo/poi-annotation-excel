@@ -91,6 +91,14 @@ All notable changes to this project are documented here. The format is based on
   `ArrayIndexOutOfBoundsException` (the order-block merge consumed a column and the header
   label index only skipped one column).
 - `formart` passes `NaN`/`Infinity` through as text instead of failing in `BigDecimal`.
+- Cascade dropdowns: option values that cannot form a legal Excel defined name (illegal
+  characters such as spaces or hyphens, length over 255, cell-reference-like values such as
+  `A1`, or empty values) now fail fast with an `ExcelException` naming the offending option
+  chain, instead of surfacing a bare POI `IllegalArgumentException` or a
+  `StringIndexOutOfBoundsException`.
+- Cascade dropdowns: defined-name deduplication is now case-insensitive (Excel names are);
+  parent values differing only by case (`ABC` vs `abc`) no longer crash with
+  "The workbook already contains this name".
 
 ### Security
 - Removed unused TLS-bypass constants (trust-all certificates / hostname verifier).

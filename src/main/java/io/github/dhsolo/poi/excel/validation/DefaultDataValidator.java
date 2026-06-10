@@ -19,6 +19,7 @@ import io.github.dhsolo.poi.excel.ExcelModel;
 import io.github.dhsolo.poi.excel.cascade.CascadeValidateItemWrapper;
 import io.github.dhsolo.poi.excel.cascade.CascadeValidateModelWrapper;
 import io.github.dhsolo.poi.excel.exception.ExcelColumnNotFoundException;
+import io.github.dhsolo.poi.excel.exception.ExcelException;
 import org.apache.poi.hssf.usermodel.HSSFDataValidationHelper;
 import org.apache.poi.hssf.usermodel.HSSFSheet;
 import org.apache.poi.ss.usermodel.*;
@@ -279,18 +280,37 @@ public class DefaultDataValidator implements DataValidator {
 
         if (needCreateName) {
             String parentValuePath = findParentValuePath(cascadeValidateModel);
+            if (parentValuePath == null || parentValuePath.isEmpty()) {
+                throw new ExcelException("Cascade options that carry a child list must have non-empty values: "
+                        + "the child dropdown's Excel defined name is built from the parent option values");
+            }
             if (!Character.isLetter(parentValuePath.charAt(0))) {
                 parentValuePath = "_" + parentValuePath;
                 setParentIsAppendPrefix(cascadeValidateModel);
             }
+            // Excel defined names are case-insensitive ("ABC" and "abc" collide), so dedupe on a
+            // lower-cased key; loop in case the suffixed candidate also collides.
             String pddStr = null;
-            if (existNamaManager.contains(parentValuePath)) {
+            String nameKey = parentValuePath.toLowerCase(Locale.ROOT);
+            while (existNamaManager.contains(nameKey)) {
                 pddStr = getNextChar();
+                nameKey = (parentValuePath + pddStr).toLowerCase(Locale.ROOT);
+            }
+            if (pddStr != null) {
                 parentValuePath += pddStr;
             }
-            existNamaManager.add(parentValuePath);
+            existNamaManager.add(nameKey);
             Name name = book.createName();
-            name.setNameName(parentValuePath);
+            try {
+                name.setNameName(parentValuePath);
+            } catch (IllegalArgumentException e) {
+                // Fail fast with the offending option chain instead of surfacing a bare POI error:
+                // Excel defined names allow letters/digits/'.'/'_' only, are capped at 255
+                // characters, and must not look like a cell reference (e.g. "A1").
+                throw new ExcelException("Cascade dropdown cannot register the Excel defined name '"
+                        + parentValuePath + "' (concatenated from the parent option values): "
+                        + e.getMessage() + ". Adjust the cascade option values accordingly", e);
+            }
             name.setRefersToFormula(format);
             if (!existINDIRECT.containsKey(realIndex)) {
                 CellRangeAddressList regions = new CellRangeAddressList(rowNum, 1000, realIndex, realIndex);
