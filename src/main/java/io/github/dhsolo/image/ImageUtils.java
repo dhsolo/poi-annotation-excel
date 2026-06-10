@@ -87,7 +87,14 @@ public class ImageUtils {
      *                     (uncommon in practice)
      */
     public static BufferedImage resizeImage(BufferedImage originalImage, int scaledWidth, int scaledHeight) throws IOException {
-        BufferedImage resizedImage = new BufferedImage(scaledWidth, scaledHeight, originalImage.getType());
+        // ImageIO frequently decodes into TYPE_CUSTOM (0), which the BufferedImage constructor
+        // rejects ("Unknown image type 0"); fall back to a standard type preserving alpha.
+        int type = originalImage.getType();
+        if (type == BufferedImage.TYPE_CUSTOM) {
+            type = originalImage.getColorModel().hasAlpha()
+                    ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        }
+        BufferedImage resizedImage = new BufferedImage(scaledWidth, scaledHeight, type);
         Graphics2D g = resizedImage.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
