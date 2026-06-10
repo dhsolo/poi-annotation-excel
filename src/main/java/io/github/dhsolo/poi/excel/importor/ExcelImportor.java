@@ -517,11 +517,16 @@ public class ExcelImportor {
 	}
 
 	private Object getFromMap(Map<?, ?> map, Object key, Class type) {
-		Object value;
-		if (map.containsKey(key)) {
-			value = map.get(key);
-		} else {
-			value = null;
+		Object value = null;
+		try {
+			if (map.containsKey(key)) {
+				value = map.get(key);
+			}
+		} catch (ClassCastException | NullPointerException ignored) {
+			// comparator-based maps (e.g. TreeMap) may reject a key of a different type;
+			// fall back to the stringified scan below
+		}
+		if (value == null) {
 			String keyText = key.toString();
 			for (Object mapKey : map.keySet()) {
 				if (mapKey != null && mapKey.equals(keyText)) {

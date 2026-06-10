@@ -91,6 +91,31 @@ class PictureExportTest {
         }
     }
 
+    /**
+     * Regression: calling {@code getWorkBook()} before {@code export()} used to flip the
+     * exporter's re-create flag, making {@code export()} serialise the original in-memory
+     * workbook — which lacks the injected pictures.
+     */
+    @Test
+    void exportAfterGetWorkBookKeepsPictures(@TempDir File tmp) throws Exception {
+        File jpg = new File(tmp, "photo.jpg");
+        BufferedImage rgb = new BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB);
+        assertThat(ImageIO.write(rgb, "jpg", jpg)).isTrue();
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (io.github.dhsolo.poi.excel.ExcelCreator creator =
+                     new io.github.dhsolo.poi.excel.ExcelCreator(
+                             new PicExportModel().setData(List.of(new PicRow("row", jpg.getAbsolutePath()))))) {
+            creator.createExcel();
+            // Inspect first, export second — the exported bytes must still contain the picture.
+            assertThat(creator.getWorkBook().getAllPictures()).hasSize(1);
+            creator.export(out, "after-inspect.xlsx");
+        }
+        try (XSSFWorkbook wb = new XSSFWorkbook(new java.io.ByteArrayInputStream(out.toByteArray()))) {
+            assertThat(wb.getAllPictures()).hasSize(1);
+        }
+    }
+
     @ExcelInfo(sheetName = "pics", isBigData = false)
     public static class PicExportModel {
         @ExcelData
