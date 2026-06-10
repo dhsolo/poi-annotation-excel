@@ -98,7 +98,6 @@ public class DefaultDataValidator implements DataValidator {
     @Override
     public void checkListBox(Map<Integer, ExcelModel> columnMappingInfo, boolean needOrderNum, int rowNum) {
         this.rowNum = rowNum;
-        int initNum = needOrderNum ? 1 : 0;
 
         columnMappingInfo.forEach((index, model) -> {
             if (model.isListBox()) {

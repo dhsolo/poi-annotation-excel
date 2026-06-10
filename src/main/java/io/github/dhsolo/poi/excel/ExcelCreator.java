@@ -518,13 +518,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         Map<Integer, ExcelModel> mapping = new HashMap<>();
         List<ExcelModel> models = prop.getExcelModels();
         if (models != null && models.size() > 0) {
-            models.forEach(m -> {
-                mapping.put(mapping.size(), m);
-                m.setRealIndex(info.needOrder()
-                        ? mapping.size() + 1 + (orderColumnSpan - 1)
-                        : mapping.size());
-            });
+            models.forEach(m -> mapping.put(mapping.size(), m));
         }
+        // Order matters: realIndex (the physical column used by dropdown/formula validation) is
+        // computed by adjustExcelModelIndex from needOrderNum + orderColumnSpan, so the span must
+        // be set before the mapping and the order flag trigger that recomputation.
+        this.orderColumnSpan = info.orderColumnSpan();
         setColumnMappingInfo(mapping);
         Map<Integer, Integer> widthInfo = prop.getColumnWidthInfo();
         if (widthInfo != null && !widthInfo.isEmpty()) {
@@ -534,7 +533,6 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         this.sheetName = info.sheetName();
         this.currentExcelType = info.excelType();
         this.setNeedOrderNum(info.needOrder());
-        this.orderColumnSpan = info.orderColumnSpan();
         this.pictureType = info.pictureInnerType();
         this.imageReadTimeOut = info.imageReadTimeOut();
         setTitleRowHeight(info.titleHeight());
@@ -1396,7 +1394,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             if (!Reflect.hasText(m.getColumnName()) && header != null && header.length > key)
                 m.setColumnName(header[key]);
             if (m.getIndex() == 0) m.setIndex(key);
-            m.setRealIndex(needOrderNum ? count.getAndIncrement() + 1 : count.getAndIncrement());
+            // realIndex = physical sheet column: shift by the whole order block, not just one.
+            m.setRealIndex(needOrderNum ? count.getAndIncrement() + orderColumnSpan : count.getAndIncrement());
             columnNameModelMappingInfo.put(m.getFieldName(), m);
         });
     }
@@ -1621,7 +1620,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      *
      * @param span the column span count for the order-number cell
      */
-    public void setOrderColumnSpan(int span) { orderColumnSpan = span; }
+    public void setOrderColumnSpan(int span) { orderColumnSpan = span; adjustExcelModelIndex(); }
 
     /**
      * Sets the placeholder text written to cells whose resolved value is {@code null} or empty.
