@@ -186,6 +186,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private int rowNum;
     /** Absolute row where the data block starts; captured at populateData entry, used by mergeCells. */
     private int firstDataRowNum;
+    /** True when this instance created {@link #book} itself (vs. wrapping or being stitched into a shared one). */
+    private boolean ownsBook;
+    /** True when this instance was counted in {@link #INSTANCE_COUNT}; makes close() idempotent. */
+    private boolean countedInstance;
     private boolean excelCreated = false;
     private boolean isBigData = false;
 
@@ -543,7 +547,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private void initHelpers() {
         // styleManager is built by the defaultCellStyle() call that immediately follows
         // initHelpers() in createWorkBook(); no need to create a throwaway one here.
-        INSTANCE_COUNT.incrementAndGet();
+        // Count each instance at most once: a re-init via the public createWorkBook(String,
+        // boolean) used to double-count and keep the shared download pool alive forever.
+        if (!countedInstance) {
+            countedInstance = true;
+            INSTANCE_COUNT.incrementAndGet();
+        }
         pictureHandler = new DefaultPictureHandler(book, currentExcelType, sheet, drawing,
                 imagesSeparator, getOrCreateExecutor(), this);
         pictureHandler.setPictureType(pictureType);
@@ -706,6 +715,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.isChildComplex = true;
             ec.sheet = sheet;
             ec.rowNum = rowNum;
+            ec.disposeOwnStreamingBook();
             ec.book = book;
             ec.child = null;
             ec.drawing = drawing;
@@ -982,6 +992,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.currentListNum = concurrentRowNum;
             ec.existNamaManager = existNamaManager;
             ec.atomicInteger.set(atomicInteger.get());
+            // The child is stitched into this workbook; its own (now unused) workbook would
+            // otherwise leak SXSSF temp files in big-data mode.
+            ec.disposeOwnStreamingBook();
             ec.book = book;
             ec.sheet = ec.sheetName != null && ec.sheetName.length() > 0
                     ? ec.book.createSheet(ec.sheetName) : ec.book.createSheet();
@@ -1026,7 +1039,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     private void createWorkBook(WorkbookStrategy strategy) {
+        disposeOwnStreamingBook(); // a re-init replaces the workbook; drop the old one's temp files
         book = strategy.createWorkbook();
+        ownsBook = true;
         currentExcelType = strategy.getExcelType();
         isBigData = strategy.isBigData();
         sheet = (sheetName != null && sheetName.trim().length() > 0)
@@ -1742,21 +1757,45 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      */
     public void close() {
         if (pictureHandler != null) pictureHandler.cleanup();
+        disposeOwnStreamingBook();
         // GETTER_CACHE is a static shared cache; do not clear it on instance close to avoid affecting other concurrent instances
-        if (INSTANCE_COUNT.decrementAndGet() <= 0) {
-            synchronized (ExcelCreator.class) {
-                if (executor != null && !executor.isShutdown()) {
-                    executor.shutdown();
-                    try {
-                        if (!executor.awaitTermination(30, TimeUnit.SECONDS)) executor.shutdownNow();
-                    } catch (InterruptedException ie) {
-                        executor.shutdownNow();
-                        Thread.currentThread().interrupt();
+        // Only instances counted in initHelpers() may decrement: a wrapper creator built via
+        // ExcelCreator(Workbook) was never counted, and a double close() must not decrement
+        // twice — either would drive the count negative and shut the shared download pool
+        // down underneath other active exports.
+        if (countedInstance) {
+            countedInstance = false;
+            if (INSTANCE_COUNT.decrementAndGet() <= 0) {
+                synchronized (ExcelCreator.class) {
+                    if (executor != null && !executor.isShutdown()) {
+                        executor.shutdown();
+                        try {
+                            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) executor.shutdownNow();
+                        } catch (InterruptedException ie) {
+                            executor.shutdownNow();
+                            Thread.currentThread().interrupt();
+                        }
+                        executor = null;
                     }
-                    executor = null;
                 }
             }
         }
         logger.debug("ExcelCreator resources closed");
+    }
+
+    /**
+     * Disposes the temp files behind a streaming (SXSSF) workbook this creator owns.
+     * No-op for non-streaming workbooks or when the workbook was created elsewhere
+     * (wrapped via {@code ExcelCreator(Workbook)} or replaced by sheet stitching).
+     */
+    private void disposeOwnStreamingBook() {
+        if (ownsBook && book instanceof org.apache.poi.xssf.streaming.SXSSFWorkbook sx) {
+            try {
+                sx.dispose();
+            } catch (Exception e) {
+                logger.warn("Failed to dispose streaming workbook temp files", e);
+            }
+        }
+        ownsBook = false;
     }
 }
