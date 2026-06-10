@@ -236,18 +236,18 @@ public class ExcelImportor {
 			}
 			List<Integer> exceptColumnNum = exceptColumnNumMap.get(s);
 			sheet = sheets.get(s);
-			if (s < sheetStartRow.size()) {
-				startRow = sheetStartRow.get(s);
-			}
+			// Per-sheet override falls back to the global startRow WITHOUT mutating it, so a
+			// sheet-specific value no longer leaks into subsequent sheets that have no entry.
+			int effectiveStartRow = s < sheetStartRow.size() ? sheetStartRow.get(s) : startRow;
 			int realRows = sheet.getLastRowNum();
-			if(startRow > realRows){
+			if(effectiveStartRow > realRows){
 				datas.add(new LinkedList<>());
 				continue;
 			}
-			startRow = Math.min(startRow, sheet.getLastRowNum());
+			effectiveStartRow = Math.min(effectiveStartRow, sheet.getLastRowNum());
 			int lastRowNum = sheet.getLastRowNum();
 			LinkedList<Map<String, Object>> rowData = new LinkedList<>();
-			for (int r = startRow; r <= lastRowNum; r++) {
+			for (int r = effectiveStartRow; r <= lastRowNum; r++) {
 				row = sheet.getRow(r);
 				if (row == null ||  checkIsEmpty(row)) {
 					continue;
@@ -294,7 +294,7 @@ public class ExcelImportor {
 						if(!excelModel.isNullAble()){
 							String errMsg = "Sheet '" + sheet.getSheetName() + "': row " + (r + 1) + ", column " + (colIx + 1) + " must not be empty";
 							errorMessage.append(errMsg).append("\n");
-							if (readListener != null) readListener.onError(errMsg, r - startRow);
+							if (readListener != null) readListener.onError(errMsg, r - effectiveStartRow);
 							if(firstErrorBreak){
 								return false;
 							}
@@ -309,7 +309,7 @@ public class ExcelImportor {
 						if(!excelModel.isNullAble() && (value ==null || (value+"").trim().length()==0)) {
 							String errMsg = "Sheet '" + sheet.getSheetName() + "': row " + (r + 1) + ", column " + (colIx + 1) + " must not be empty";
 							errorMessage.append(errMsg).append("\n");
-							if (readListener != null) readListener.onError(errMsg, r - startRow);
+							if (readListener != null) readListener.onError(errMsg, r - effectiveStartRow);
 							if(firstErrorBreak){
 								return false;
 							}
@@ -318,7 +318,7 @@ public class ExcelImportor {
 						logger.error("Failed to read cell value", e);
 						String errMsg = "Sheet '" + sheet.getSheetName() + "': row " + (r + 1) + ", column " + (colIx + 1) + " — failed to read cell value. Please verify the file format matches the template. Cause: " + e.getMessage();
 						errorMessage.append(errMsg).append("\n");
-						if (readListener != null) readListener.onError(errMsg, r - startRow);
+						if (readListener != null) readListener.onError(errMsg, r - effectiveStartRow);
 						if(firstErrorBreak){
 							return false;
 						}
@@ -340,7 +340,7 @@ public class ExcelImportor {
 						}else if(excelModel.isNeedAddTranslationException()){
 							String errMsg = "Sheet '" + sheet.getSheetName() + "': row " + (r + 1) + ", column " + (colIx + 1) + " — value translation failed. Allowed values are: " + excelModel.getTranslateMappingInfo().keySet();
 							errorMessage.append(errMsg).append("\n");
-							if (readListener != null) readListener.onError(errMsg, r - startRow);
+							if (readListener != null) readListener.onError(errMsg, r - effectiveStartRow);
 							if(firstErrorBreak){
 								return false;
 							}
@@ -428,7 +428,7 @@ public class ExcelImportor {
 						if(!validate){
 							String errMsg = "Sheet '" + sheet.getSheetName() + "': row " + (r + 1) + ", column " + (excelCustomModel.getCurrentCellNum() + 1) + " — custom validation failed: " + excelCustomValidate.errorMessage();
 							errorMessage.append(errMsg).append("\n");
-							if (readListener != null) readListener.onError(errMsg, r - startRow);
+							if (readListener != null) readListener.onError(errMsg, r - effectiveStartRow);
 						}
 					}
 				}
@@ -440,7 +440,7 @@ public class ExcelImportor {
 
 				if (readListener != null) {
 					if (errorMessage.length() == errorLengthBeforeRow) {
-						readListener.onRow(cellData, r - startRow);
+						readListener.onRow(cellData, r - effectiveStartRow);
 						listenerRowCount++;
 					}
 				} else {

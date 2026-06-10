@@ -63,6 +63,31 @@ class MultiSheetImportTest {
         assertThat(rows).hasSize(2); // startRow defaults to 1: the two data rows of sheet 0
     }
 
+    /**
+     * Regression: a per-sheet start row used to be assigned into the shared {@code startRow}
+     * field and leak into subsequent sheets without their own entry; sheet 1 must fall back to
+     * the global default (1), not inherit sheet 0's override (2).
+     */
+    @Test
+    void perSheetStartRowDoesNotLeakIntoNextSheet() throws Exception {
+        byte[] xlsx = twoSheetWorkbook(); // sheet0: 3 rows, sheet1: 2 rows
+        ExcelImportor importor = new ExcelImportor(new ByteArrayInputStream(xlsx));
+        java.util.LinkedList<ExcelModel> m0 = new java.util.LinkedList<>();
+        m0.add(ExcelImportor.generateExcelModel("code"));
+        java.util.LinkedList<ExcelModel> m1 = new java.util.LinkedList<>();
+        m1.add(ExcelImportor.generateExcelModel("name"));
+        importor.addColumnName(m0);
+        importor.addColumnName(m1);
+        importor.addSheetStartRow(2); // sheet0 only: skip header + first data row
+
+        assertThat(importor.analysisExcel()).isTrue();
+        assertThat(importor.getObject(0, Map.class)).hasSize(1); // row 2 of sheet0
+        // sheet1 has rows 0..1; with the leak it inherited startRow=2 and returned nothing
+        List<Map> sheet1 = importor.getObject(1, Map.class);
+        assertThat(sheet1).hasSize(1);
+        assertThat(sheet1.get(0).get("name")).isEqualTo("alpha");
+    }
+
     /** sheet0: code column with 3 rows (header+2 data); sheet1: 名称 header + "alpha". */
     private static byte[] twoSheetWorkbook() throws Exception {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

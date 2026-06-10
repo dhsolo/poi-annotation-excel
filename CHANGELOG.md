@@ -18,6 +18,17 @@ All notable changes to this project are documented here. The format is based on
 - Tests route POI's internal log4j-api logging into slf4j (`log4j-to-slf4j`, test scope),
   removing the spurious `StatusLogger` ERROR line from every build.
 
+### Fixed
+- The CSV adapter now follows the POI contracts: `getLastCellNum()` returns last index **plus
+  one** (so the trailing required-column check works for CSV exactly as for real sheets),
+  out-of-range `getRow`/`getCell` return null instead of throwing, the row/cell iterators work
+  (for-each over a CSV sheet/row no longer NPEs), `getPhysicalNumberOfRows` reports the real
+  count, and the CSV reader is closed. CSV import errors now name the sheet as `CSV` instead of
+  an empty string.
+- A per-sheet start row (`addSheetStartRow`) no longer leaks into subsequent sheets that have
+  no entry of their own; they fall back to the global `setStartRow` value.
+- An empty `BusinessSXSSFSheet` reports `getLastRowNum() == -1` (POI contract) instead of 0.
+
 ## [1.1.1] - 2026-06-10
 
 ### Fixed
