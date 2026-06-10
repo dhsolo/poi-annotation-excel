@@ -65,3 +65,26 @@ All notable changes to this project are documented here. The format is based on
 - Remote image downloads are restricted to http/https and capped in size.
 - Opt-in SSRF guard (`ImageDownloadPolicy.setBlockPrivateNetworks(true)`) rejects image URLs
   resolving to loopback/link-local/site-local/private addresses (off by default).
+
+## [1.0.1] - 2026-06-10
+
+### Fixed
+- **Import precision loss**: numeric cell values were silently rounded to 3 fraction digits by
+  `NumberFormat.getInstance()` during DOM import (`0.123456789` became `"0.123"`, and date-time
+  serial values lost up to ~43 seconds). Values are now converted via `BigDecimal` and keep their
+  full precision; integer-valued cells still render without a trailing `.0`.
+- **Custom validation skipped rows beyond the first**: `@ExcelCustomValidateMethod` snapshots
+  were captured only for the first data row and re-validated against later rows, so an invalid
+  value in row 2+ passed silently. Snapshots are now rebuilt per row; additionally, an error in an
+  earlier row no longer disables custom validation for all subsequent rows when
+  `firstErrorBreak = false`.
+- **`@ExcelColumnParent` + `needMergeCell` crash**: the vertical-merge base row did not account
+  for the extra grouped-header row, landing the data merge one row too high and failing with an
+  overlapping-region `IllegalStateException`. The grouped-header row is now counted.
+- **Multi-image column expansion desynced later columns**: the physical-to-data column offset
+  created by multi-picture expansion was overwritten per column instead of accumulated, causing a
+  `NullPointerException` (or shifted values) once two or more ordinary columns followed a
+  multi-image column. The offset now accumulates; `CellResolveContext` gained a `dataColIndex`
+  component (the old constructor signature is preserved), and `PictureCellResolver` looks up the
+  per-column image count by data column index, fixing the same desync when an order column
+  (`needOrder = true`) shifts the layout.
