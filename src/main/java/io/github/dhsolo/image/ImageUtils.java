@@ -18,8 +18,6 @@ package io.github.dhsolo.image;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Image utility methods used by the Excel framework when embedding or processing
@@ -42,8 +40,9 @@ public class ImageUtils {
     private static final String HTTP = "http";
 
     /**
-     * Encodes any Chinese (CJK Unified Ideographs) characters found in a URL string
-     * using UTF-8 percent-encoding, leaving all other characters unchanged.
+     * Percent-encodes every character a URL cannot legally carry (spaces, CJK and other
+     * non-ASCII characters, quotes, ...), leaving RFC 3986 unreserved/reserved characters
+     * and existing {@code %XX} escapes untouched.
      *
      * <p>This is necessary because image URLs stored in Excel data may contain raw
      * Chinese characters that are rejected by standard HTTP clients expecting
@@ -51,21 +50,33 @@ public class ImageUtils {
      *
      * @param url the raw URL string, potentially containing CJK characters;
      *            must not be {@code null}
-     * @return a new URL string in which every run of CJK characters has been
-     *         replaced by its UTF-8 percent-encoded equivalent
+     * @return a new URL string with all illegal characters UTF-8 percent-encoded
      * @throws UnsupportedEncodingException if the UTF-8 charset is not available
      *                                      (practically never thrown on any JVM)
      */
     public static String urlEncoder(String url) throws UnsupportedEncodingException {
-        Pattern p = Pattern.compile("[一-龥]+");
-        Matcher matcher = p.matcher(url);
-        StringBuffer b = new StringBuffer();
-        while (matcher.find()) {
-            matcher.appendReplacement(b, java.net.URLEncoder.encode(matcher.group(0), "utf-8"));
+        StringBuilder sb = new StringBuilder(url.length());
+        for (int i = 0; i < url.length(); ) {
+            int cp = url.codePointAt(i);
+            if (cp < 128 && URL_KEEP.indexOf(cp) >= 0) {
+                sb.append((char) cp);
+            } else {
+                byte[] utf8 = new String(Character.toChars(cp)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                for (byte b : utf8) {
+                    sb.append('%').append(String.format("%02X", b));
+                }
+            }
+            i += Character.charCount(cp);
         }
-        matcher.appendTail(b);
-        return b.toString();
+        return sb.toString();
     }
+
+    /**
+     * Characters passed through unchanged: RFC 3986 unreserved + reserved characters, plus
+     * {@code %} so URLs that are already percent-encoded are not encoded twice.
+     */
+    private static final String URL_KEEP =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%";
 
     /**
      * Resizes a {@link BufferedImage} to the specified dimensions using bilinear

@@ -179,9 +179,19 @@ public final class Reflect {
             T obj = clazz.getDeclaredConstructor().newInstance();
             for (java.util.Map.Entry<String, Object> entry : map.entrySet()) {
                 Field f = findField(clazz, entry.getKey());
-                if (f != null && entry.getValue() != null) {
-                    f.set(obj, entry.getValue());
+                if (f == null || entry.getValue() == null) continue;
+                Object value = entry.getValue();
+                // Imported cell values are mostly Strings; convert to the field's type via the
+                // same table the column import uses. Unconvertible values skip the field
+                // instead of blowing up the whole mapping.
+                if (!f.getType().isInstance(value)) {
+                    try {
+                        value = CommonUtil.convert(value, f.getType());
+                    } catch (RuntimeException conversionFailed) {
+                        value = null;
+                    }
                 }
+                if (value != null) f.set(obj, value);
             }
             return obj;
         } catch (Exception e) {

@@ -550,105 +550,11 @@ public class ExcelImportor {
 	 * Converts a value to the specified type.
 	 */
 	public Object caseObject(Object value, Class type) {
-		Object result = null;
-		if (value == null || value.toString().trim().length() == 0)
-			return type.cast(null);
-		if (type != null) {
-			String className = type.getCanonicalName();
-			String numVal = value.toString().replaceAll(",", "").trim();
-			switch (className) {
-			case "java.lang.String":
-				result = value + "";
-				break;
-			case "java.lang.Integer":
-			case "int":
-				if (numVal.indexOf(".") != -1) {
-					numVal = numVal.substring(0, numVal.indexOf("."));
-				}
-				result = Integer.valueOf(numVal);
-				break;
-			case "java.lang.Double":
-			case "double":
-				result = Double.valueOf(numVal);
-				break;
-			case "java.lang.Long":
-			case "long":
-				result = Long.valueOf(numVal);
-				break;
-			case "java.lang.Boolean":
-			case "boolean":
-				result = Boolean.valueOf(value.toString());
-				break;
-			case "java.lang.Float":
-			case "float":
-				result = Float.valueOf(numVal);
-				break;
-			case "java.lang.Short":
-			case "short":
-				result = Short.valueOf(numVal);
-				break;
-			case "java.util.Date":
-				result = dateHandle(value.toString());
-				break;
-			case "java.sql.Timestamp":
-				result = timeStampHandle(value.toString());
-				break;
-			case "java.sql.Date":
-				result = sqlDateHandle(value.toString());
-				break;
-			case "java.math.BigDecimal":
-				result = new java.math.BigDecimal(numVal);
-				break;
-			case "java.math.BigInteger":
-				result = new java.math.BigInteger(numVal.indexOf(".") != -1
-						? numVal.substring(0, numVal.indexOf("."))
-						: numVal);
-				break;
-			case "java.lang.Character":
-			case "char":
-				String charStr = value.toString();
-				result = charStr.isEmpty() ? null : Character.valueOf(charStr.charAt(0));
-				break;
-			case "java.lang.Byte":
-			case "byte":
-				result = Byte.valueOf(numVal);
-				break;
-			case "java.time.LocalDate": {
-				Date d = dateHandle(value.toString());
-				result = d != null ? d.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null;
-				break;
-			}
-			case "java.time.LocalDateTime": {
-				Date d = dateHandle(value.toString());
-				result = d != null ? d.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime() : null;
-				break;
-			}
-			}
-		}
-		return result;
+		return CommonUtil.convert(value, type);
 	}
-	private static final String[] DATE_PATTERNS = {
-			"yyyy-MM-dd HH:mm:ss",
-			"yyyy-MM-dd'T'HH:mm:ss",
-			"yyyy/MM/dd HH:mm:ss",
-			"yyyy-MM-dd",
-			"yyyy/MM/dd",
-			"yyyy.MM.dd",
-			"yyyy-MM",
-			"yyyy/MM",
-			"yyyyMMdd"
-	};
 
 	public Date dateHandle(String source){
-		if (source == null) return null;
-		String trimmed = source.trim();
-		for (String pattern : DATE_PATTERNS) {
-			try {
-				return new SimpleDateFormat(pattern).parse(trimmed);
-			} catch (ParseException ignored) {}
-		}
-		logger.warn("Unable to parse date string '{}' with any of the known patterns", source);
-		return null;
+		return CommonUtil.parseDate(source);
 	}
 
 	public Object timeStampHandle(String source){

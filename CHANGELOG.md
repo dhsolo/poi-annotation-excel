@@ -28,6 +28,14 @@ All notable changes to this project are documented here. The format is based on
 - A per-sheet start row (`addSheetStartRow`) no longer leaks into subsequent sheets that have
   no entry of their own; they fall back to the global `setStartRow` value.
 - An empty `BusinessSXSSFSheet` reports `getLastRowNum() == -1` (POI contract) instead of 0.
+- `ExcelRowData.getRowData(Class)` (row-to-bean mapping in custom validation) converts String
+  cell values to the bean's field types using the same conversion table as column imports;
+  it used to throw `IllegalArgumentException` for any non-String field. Unconvertible values
+  skip the field instead of failing the whole mapping. The conversion table now lives in
+  `CommonUtil.convert`, shared by `ExcelImportor.caseObject`.
+- `ImageUtils.urlEncoder` percent-encodes every character a URL cannot legally carry (spaces,
+  all non-ASCII blocks, quotes, ...) per RFC 3986 — it used to encode only the CJK basic block.
+  Already-encoded `%XX` sequences and reserved characters pass through unchanged.
 
 ## [1.1.1] - 2026-06-10
 
