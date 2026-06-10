@@ -188,6 +188,10 @@ public interface PictureHandler {
      * directory, image numbering, and ZIP staging stay coordinated; each child sheet binds
      * itself here before its data is populated.
      *
+     * <p><strong>Implementations should override this method.</strong> The default is a no-op,
+     * which is only correct for single-sheet handlers — without an override, anchors of every
+     * child sheet would land on the sheet the handler was originally constructed with.
+     *
      * @param sheet   the sheet new anchors should land on
      * @param drawing that sheet's drawing patriarch
      */

@@ -326,6 +326,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     /**
      * Creates an {@code ExcelCreator} that wraps an externally created {@link Workbook}.
      * <p>Useful for attaching this creator to a workbook that already has sheets.
+     * <p><strong>Limitations:</strong> this constructor performs no helper initialisation —
+     * the picture handler, data validator, exporter, and pipeline are not created. It is
+     * intended for lightweight workbook access (styles, fonts); full exports — in particular
+     * child sheets carrying pictures — should go through the workbook-creating constructors.
      *
      * @param book an existing POI {@link Workbook} instance
      */
@@ -769,10 +773,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             if (pictureHandler != null) ec.pictureHandler = pictureHandler;
             // Complex children never run initHelpers, so without this their dropdown/cascade/
             // formula validations were silently skipped (dataValidator == null).
-            ec.dataValidator = new DefaultDataValidator(book, sheet, currentExcelType,
-                    hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
-                    ec.columnNameModelMappingInfo);
-            ec.dataValidator.setCurrentListNum(ec.currentListNum);
+            ec.dataValidator = buildChildValidator(ec, sheet);
             ec.defaultCellStyle();
             ec.createExcel();
             if (pictureHandler != null && !pictureHandler.hasPicture() && ec.pictureHandler.hasPicture()) {
@@ -1061,10 +1062,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 pictureHandler.bindSheet(ec.sheet, ec.drawing);
                 ec.pictureHandler = pictureHandler;
             }
-            ec.dataValidator = new DefaultDataValidator(book, ec.sheet, currentExcelType,
-                    hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
-                    ec.columnNameModelMappingInfo);
-            ec.dataValidator.setCurrentListNum(ec.currentListNum);
+            ec.dataValidator = buildChildValidator(ec, ec.sheet);
             // Marking the child "complex" suppresses its own picture-dir creation and
             // post-processing — the parent owns both for the shared handler.
             ec.isChildComplex = true;
@@ -1088,6 +1086,19 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         if (complexExcelCreatorList == null || complexExcelCreatorList.isEmpty()
                 || index < 0 || index >= complexExcelCreatorList.size()) return null;
         return complexExcelCreatorList.get(index);
+    }
+
+    /**
+     * Builds a data validator for a child creator (appended sheet or complex section) against
+     * the shared workbook and the sheet its validations must target, wiring in the shared
+     * hidden list sheet, name registry, and the child's own column models and counters.
+     */
+    private DataValidator buildChildValidator(ExcelCreator ec, Sheet targetSheet) {
+        DataValidator validator = new DefaultDataValidator(book, targetSheet, currentExcelType,
+                hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
+                ec.columnNameModelMappingInfo);
+        validator.setCurrentListNum(ec.currentListNum);
+        return validator;
     }
 
     private List<?> resolveDataList() {

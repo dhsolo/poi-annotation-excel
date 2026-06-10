@@ -78,6 +78,10 @@ public class DefaultExcelExporter implements ExcelExporter {
         }
         // Without the cache a second call returned the original in-memory book, which lacks
         // the injected pictures — two calls disagreed about the workbook contents.
+        if (isReCreate && recreatedBook == null) {
+            logger.debug("getWorkBook() after close(): returning the original in-memory workbook "
+                    + "(injected pictures are no longer available)");
+        }
         return activeBook();
     }
 
