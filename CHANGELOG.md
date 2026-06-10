@@ -139,6 +139,21 @@ All notable changes to this project are documented here. The format is based on
 - Import value translation no longer fails on comparator-based translate maps (e.g.
   `TreeMap`) combined with non-string cell values; the typed lookup falls back to the
   stringified scan.
+- Appended child sheets (`getChild().add(...)`): pictures and dropdown validations used to
+  land in the child's discarded original workbook and silently vanish from the export. The
+  child now shares the parent's picture handler (rebound to the child's sheet via the new
+  `PictureHandler.bindSheet`; download directory, image numbering, and ZIP staging are
+  coordinated workbook-wide) and rebuilds its validator against the shared workbook.
+- Complex multi-section sheets: child sections never built a data validator, so
+  `@ExcelListBox`/cascade/`@ExcelFormula` on a child section were silently skipped; the
+  validator is now created against the shared sheet, and `currentListNum`/name counters are
+  carried back to the parent.
+- Dropdown/formula validation columns now account for multi-picture expansion: `realIndex` is
+  refreshed from the physical layout after picture analysis, so a dropdown to the right of a
+  multi-image column lands on its real column.
+- `ExcelExporter` gained a `close()` lifecycle hook (default no-op); the workbook re-read from
+  the picture-injected temp file is now closed by `ExcelCreator.close()` instead of leaking its
+  `OPCPackage`.
 
 ### Deprecated
 - `ExcelImportor(Object)`: the constructor reads nothing and yields an unusable instance; use
