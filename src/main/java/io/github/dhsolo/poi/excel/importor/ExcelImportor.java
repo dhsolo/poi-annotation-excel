@@ -228,6 +228,12 @@ public class ExcelImportor {
 		int listenerRowCount = 0;
 		// Iterate over each sheet and extract its data
 		for (int s = 0; s < sheets.size(); s++) {
+			// No columns registered for this sheet: nothing to parse. Keep the result list
+			// aligned by index so getObject(sheetNum, ...) stays positional.
+			if (s >= columnNameList.size() || columnNameList.get(s).isEmpty()) {
+				datas.add(new LinkedList<>());
+				continue;
+			}
 			List<Integer> exceptColumnNum = exceptColumnNumMap.get(s);
 			sheet = sheets.get(s);
 			if (s < sheetStartRow.size()) {
@@ -892,6 +898,28 @@ public class ExcelImportor {
 	 */
 	public void addColumnName(LinkedList<ExcelModel> excelModels) {
 		this.columnNameList.add(excelModels);
+	}
+
+	/**
+	 * Registers the column model list for a specific sheet index, padding any sheets in
+	 * between with empty lists (those sheets are skipped during parsing). Use this when the
+	 * data to import is not on the first sheet — the column lists are matched to sheets
+	 * positionally.
+	 *
+	 * @param sheetNum    zero-based sheet index the models apply to
+	 * @param excelModels column models for that sheet
+	 */
+	public void addColumnName(int sheetNum, LinkedList<ExcelModel> excelModels) {
+		if (sheetNum < 0)
+			throw new IllegalArgumentException("sheetNum < 0");
+		while (columnNameList.size() < sheetNum) {
+			columnNameList.add(new LinkedList<>());
+		}
+		if (columnNameList.size() == sheetNum) {
+			columnNameList.add(excelModels);
+		} else {
+			columnNameList.set(sheetNum, excelModels);
+		}
 	}
 
 	/**

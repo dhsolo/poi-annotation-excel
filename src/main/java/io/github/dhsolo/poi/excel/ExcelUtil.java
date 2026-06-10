@@ -451,7 +451,7 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(resolveColumns(clazz, columns));
+        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
         boolean ok = importor.analysisExcel();
         if (!ok) {
             throw new IllegalStateException("Excel parsing failed: " + importor.getErrorMessage());
@@ -490,7 +490,7 @@ public class ExcelUtil {
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> importExcelToMap(InputStream in, int sheetIndex, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(toLinkedList(columns));
+        importor.addColumnName(sheetIndex, toLinkedList(columns));
         boolean ok = importor.analysisExcel();
         if (!ok) {
             throw new IllegalStateException("Excel parsing failed: " + importor.getErrorMessage());
@@ -521,7 +521,7 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, int startRow, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(resolveColumns(clazz, columns));
+        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
         importor.setStartRow(startRow);
         boolean ok = importor.analysisExcel();
         if (!ok) {
@@ -544,7 +544,7 @@ public class ExcelUtil {
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> importExcelToMap(InputStream in, int sheetIndex, int startRow, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(toLinkedList(columns));
+        importor.addColumnName(sheetIndex, toLinkedList(columns));
         importor.setStartRow(startRow);
         boolean ok = importor.analysisExcel();
         if (!ok) {
