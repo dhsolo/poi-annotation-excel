@@ -74,6 +74,89 @@ class MultiImagePictureColumnTest {
         }
     }
 
+    /**
+     * Regression (complex multi-section sheets): the picture handler is shared across sections
+     * and its cross-section expansion mapping mixes colliding data-column keys. A child
+     * section's vertical merge / layout must only honour its OWN expansion entries — a parent
+     * section with a multi-image column used to shift the child's merge column.
+     */
+    @Test
+    void parentSectionExpansionDoesNotShiftChildSectionMerge(@TempDir File tmp) throws Exception {
+        ComplexParent parent = new ComplexParent();
+        parent.rows = List.of(new RowBean(twoPicturePaths(tmp), "alpha", "beta"));
+        ChildSection child = new ChildSection();
+        child.rows = List.of(new MergeBean("A"), new MergeBean("A"), new MergeBean("B"));
+        parent.child = child;
+
+        File out = new File(tmp, "complex.xlsx");
+        ExcelUtil.exportLocal(out.getAbsolutePath(), parent);
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new FileInputStream(out))) {
+            // layout: parent header=0, parent data=1, child header=2, child data=3..5
+            // child merge column: data idx 1 -> physical col 1; the parent's multi-image
+            // expansion entry (data idx 0, +1 col) must NOT shift it to col 2.
+            org.apache.poi.ss.util.CellRangeAddress merge = null;
+            for (org.apache.poi.ss.util.CellRangeAddress r : wb.getSheetAt(0).getMergedRegions()) {
+                if (r.getFirstRow() != r.getLastRow() && r.getFirstRow() >= 3) {
+                    merge = r;
+                }
+            }
+            assertThat(merge).isNotNull();
+            assertThat(merge.getFirstColumn()).isEqualTo(1);
+            assertThat(merge.getLastColumn()).isEqualTo(1);
+            assertThat(merge.getFirstRow()).isEqualTo(3);
+            assertThat(merge.getLastRow()).isEqualTo(4);
+        }
+    }
+
+    @ExcelInfo(sheetName = "complexPics")
+    public static class ComplexParent implements io.github.dhsolo.poi.excel.model.ComplexExcelModel {
+        @ExcelData
+        private List<RowBean> rows;
+
+        @ExcelColumn(columnName = "图片", index = 1)
+        @ExcelImage
+        private String pic;
+
+        @ExcelColumn(columnName = "列A", index = 2)
+        private String colA;
+
+        @ExcelColumn(columnName = "列B", index = 3)
+        private String colB;
+
+        ChildSection child;
+
+        public List<RowBean> getRows() { return rows; }
+
+        @Override
+        @SuppressWarnings("rawtypes")
+        public List getComplexModels() { return List.of(child); }
+    }
+
+    @ExcelInfo(sheetName = "childSection")
+    public static class ChildSection {
+        @ExcelColumn(columnName = "数量", index = 1, sourceField = "group")
+        private String count;
+
+        // merge column at data idx 1: only a column RIGHT of the parent's picture key (0)
+        // exercises the cross-section shift bug
+        @ExcelColumn(columnName = "分组", index = 2, needMergeCell = true)
+        private String group;
+
+        @ExcelData
+        public List<MergeBean> rows;
+    }
+
+    public static class MergeBean {
+        private final String group;
+
+        public MergeBean(String group) {
+            this.group = group;
+        }
+
+        public String getGroup() { return group; }
+    }
+
     /** Writes one tiny PNG and returns "path,path" so a single cell carries two images. */
     private static String twoPicturePaths(File tmp) throws Exception {
         File png = new File(tmp, "p.png");

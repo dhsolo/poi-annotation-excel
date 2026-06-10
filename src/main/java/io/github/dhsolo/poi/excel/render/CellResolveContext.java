@@ -51,6 +51,9 @@ import org.apache.poi.ss.usermodel.Sheet;
  *                             any extra cells created by multi-picture expansion
  * @param pictureHandler       handler responsible for downloading and embedding images;
  *                             may be a no-op implementation when no picture columns are present
+ * @param sectionColumnMax     multi-picture expansion mapping (data column → extra columns) of
+ *                             the current creator's section; {@code null} to fall back to the
+ *                             handler's cross-section mapping
  * @author dhsolo
  * @since 1.0
  */
@@ -68,12 +71,14 @@ public record CellResolveContext(
         int rowNum,
         String noneCellDefaultValue,
         CellStyle dataCellStyle,
-        PictureHandler pictureHandler
+        PictureHandler pictureHandler,
+        java.util.Map<Integer, Integer> sectionColumnMax
 ) {
 
     /**
-     * Compatibility constructor predating {@code dataColIndex}; defaults it to {@code colIndex}
-     * (correct whenever no order column or multi-picture expansion shifts the layout).
+     * Compatibility constructor predating {@code dataColIndex} and {@code sectionColumnMax};
+     * defaults them to {@code colIndex} and {@code null} (correct whenever no order column or
+     * multi-picture expansion shifts the layout).
      */
     public CellResolveContext(
             CellValueSetter cellValueSetter,
@@ -90,6 +95,6 @@ public record CellResolveContext(
             CellStyle dataCellStyle,
             PictureHandler pictureHandler) {
         this(cellValueSetter, valueExtractor, cell, row, sheet, model, dataObj,
-                colIndex, colIndex, rowIndex, rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler);
+                colIndex, colIndex, rowIndex, rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler, null);
     }
 }

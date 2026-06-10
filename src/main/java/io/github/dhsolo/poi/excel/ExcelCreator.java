@@ -241,8 +241,23 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     // ===== Column widths =====
     private boolean isSettingColumnWidth = false;
+    /** Widths keyed by PHYSICAL column (user-facing {@link #setColumnWidth} semantics). */
     private Map<Integer, Integer> columnWidthMap = new HashMap<>();
+    /**
+     * Widths declared via {@code @ExcelColumn(columnWidth)}, keyed by DATA column index.
+     * Folded into {@link #columnWidthMap} when the header row is written, once the physical
+     * layout (order block, multi-picture expansion) is known.
+     */
+    private final Map<Integer, Integer> annotationWidthInfo = new HashMap<>();
     private boolean autoSizeColumns = false;
+
+    /**
+     * Extra physical columns created by multi-picture expansion in THIS creator's section,
+     * keyed by data column index. Captured per creator because the shared picture handler's
+     * mapping accumulates entries from every section of a complex sheet, whose data-column
+     * key spaces would otherwise collide.
+     */
+    private Map<Integer, Integer> sectionColumnMaxMapping = new HashMap<>();
 
     // ==================== Constructors ====================
 
@@ -534,7 +549,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         setColumnMappingInfo(mapping);
         Map<Integer, Integer> widthInfo = prop.getColumnWidthInfo();
         if (widthInfo != null && !widthInfo.isEmpty()) {
-            widthInfo.forEach((col, charWidth) -> columnWidthMap.put(col, charWidth * 255));
+            // Keyed by data column; translated to physical columns when the header is written
+            // (the order block and any multi-picture expansion shift the physical layout).
+            widthInfo.forEach((col, charWidth) -> annotationWidthInfo.put(col, charWidth * 255));
         }
         this.noneCellDefaultValue = info.noneCellDefaultValue();
         this.sheetName = info.sheetName();
@@ -623,8 +640,24 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     void preparePictureData() {
         List<?> dataList = resolveDataList();
         pictureHandler.checkPictureMaxSize(columnMappingInfo, dataList, header, needOrderNum, orderColumnSpan);
-        String[] expandedHeader = pictureHandler.expandHeaderForPictures(header);
+        // The handler is shared across the sections of a complex sheet and its global mapping
+        // mixes every section's (colliding) data-column keys; layout decisions for this section
+        // must use only the entries this section contributed.
+        sectionColumnMaxMapping = new HashMap<>(pictureHandler.getSectionColumnMaxMapping());
+        String[] expandedHeader = pictureHandler.expandHeaderForPictures(header, sectionColumnMaxMapping);
         if (expandedHeader != header) header = expandedHeader;
+    }
+
+    /**
+     * Translates a data-column index to its physical sheet column in this creator's section:
+     * the order block and the extra columns of multi-picture expansion to its left both shift it.
+     */
+    private int physicalColumn(int dataIdx) {
+        int physical = dataIdx + (needOrderNum ? orderColumnSpan : 0);
+        for (Map.Entry<Integer, Integer> pic : sectionColumnMaxMapping.entrySet()) {
+            if (pic.getKey() < dataIdx) physical += pic.getValue();
+        }
+        return physical;
     }
 
     /**
@@ -689,7 +722,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
                     CellResolveContext ctx = new CellResolveContext(
                             this, this, cell, row, sheet, excelModel, obj, j, dataIdx, i,
-                            rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler);
+                            rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler,
+                            sectionColumnMaxMapping);
 
                     CellValueResolver resolver = resolverFor(excelModel);
                     int extra = resolver != null ? resolver.resolve(ctx) : 0;
@@ -842,6 +876,11 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         }
 
         if (header != null && header.length > 0 && needHandle) {
+            // Fold @ExcelColumn(columnWidth) widths (data-keyed) into the physical-keyed map now
+            // that the physical layout (order block, multi-picture expansion) is final. Explicit
+            // setColumnWidth calls (already physical) win over annotation widths.
+            annotationWidthInfo.forEach((dataIdx, width) ->
+                    columnWidthMap.putIfAbsent(physicalColumn(dataIdx), width));
             row = sheet.createRow(rowNum);
             row.setHeight((short) headerRowHeight);
             int length = header.length;
@@ -936,14 +975,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         int baseRowNum = firstDataRowNum;
         if (columnMergeInfo != null) {
             for (Map.Entry<Integer, String> entry : columnMergeInfo.entrySet()) {
-                // Translate the data column to its physical column: the order column block and
-                // the extra columns of multi-picture expansion to its left both shift it.
-                int indexColumn = entry.getKey() + (needOrderNum ? orderColumnSpan : 0);
-                if (pictureHandler != null) {
-                    for (Map.Entry<Integer, Integer> pic : pictureHandler.getColumnMaxMapping().entrySet()) {
-                        if (pic.getKey() < entry.getKey()) indexColumn += pic.getValue();
-                    }
-                }
+                int indexColumn = physicalColumn(entry.getKey());
                 int index = 0;
                 String field = entry.getValue();
                 List dataList = resolveDataList();
@@ -1756,11 +1788,14 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     /**
      * Releases resources held by this instance.
-     * <p>Cleans up any temporary picture files managed by the {@link PictureHandler}.
-     * When all active {@code ExcelCreator} instances have been closed, the shared
+     * <p>Cleans up any temporary picture files managed by the {@link PictureHandler}, and
+     * disposes the temp files behind a streaming (big-data SXSSF) workbook this creator owns.
+     * <p><strong>Call order:</strong> close only after the export/upload step — in big-data
+     * mode the streaming workbook's flushed rows live in those temp files, so an export after
+     * {@code close()} would be incomplete.
+     * <p>When all active {@code ExcelCreator} instances have been closed, the shared
      * image-download thread pool is gracefully shut down (30-second timeout, then forced).
-     * <p>It is safe to call this method more than once; subsequent calls after the first
-     * are no-ops for the thread pool.
+     * <p>It is safe to call this method more than once; repeated calls are no-ops.
      */
     public void close() {
         if (pictureHandler != null) pictureHandler.cleanup();

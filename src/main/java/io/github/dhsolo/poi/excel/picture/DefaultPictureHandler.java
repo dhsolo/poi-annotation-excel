@@ -77,6 +77,8 @@ public class DefaultPictureHandler implements PictureHandler {
     private final AtomicInteger imageNum = new AtomicInteger(0);
     private int imageIndex = 1;
     private final Map<Integer, Integer> columnMaxMapping = new HashMap<>();
+    /** Expansion entries contributed by the most recent checkPictureMaxSize call (one section). */
+    private Map<Integer, Integer> sectionColumnMaxMapping = new HashMap<>();
     private final List<ImageDownLoadTask> imageDownLoadTasks = new ArrayList<>();
 
     /** Futures for submitted download tasks; joined at the pre-injection barrier. */
@@ -155,6 +157,11 @@ public class DefaultPictureHandler implements PictureHandler {
     }
 
     @Override
+    public Map<Integer, Integer> getSectionColumnMaxMapping() {
+        return sectionColumnMaxMapping;
+    }
+
+    @Override
     public String getCurrentPictureDownLoadDir() {
         return currentPictureDownLoadDir;
     }
@@ -225,6 +232,7 @@ public class DefaultPictureHandler implements PictureHandler {
     public void checkPictureMaxSize(Map<Integer, ExcelModel> columnMappingInfo, List<?> dataList,
                              String[] header, boolean needOrderNum, int orderColumnSpan) {
         int size = columnMappingInfo.size();
+        sectionColumnMaxMapping = new HashMap<>();
         Map<Integer, ExcelModel> pictureExcelModel = new LinkedHashMap<>();
         for (int i = 0; i < size; i++) {
             ExcelModel excelModel = columnMappingInfo.get(i);
@@ -258,10 +266,9 @@ public class DefaultPictureHandler implements PictureHandler {
                     }
                     int length = split.length - 1;
                     if (length > 0) {
-                        Integer max = columnMaxMapping.computeIfAbsent(key, k -> length);
-                        if (length > max) {
-                            columnMaxMapping.put(key, length);
-                        }
+                        // Per-section first; merged into the shared map below so the legacy
+                        // cross-section view keeps its max semantics.
+                        sectionColumnMaxMapping.merge(key, length, Math::max);
                     }
                 }
             }
@@ -273,6 +280,7 @@ public class DefaultPictureHandler implements PictureHandler {
             }
         }
 
+        sectionColumnMaxMapping.forEach((col, max) -> columnMaxMapping.merge(col, max, Math::max));
         imageIndex = indexNum;
         // Pre-create one image relationship per index, typed by the URL's format, so that
         // anchors created during data population resolve correctly and the bytes downloaded to
@@ -301,16 +309,24 @@ public class DefaultPictureHandler implements PictureHandler {
     }
 
     /**
-     * Expands header array for multi-picture columns.
+     * Expands header array for multi-picture columns (cross-section mapping).
      */
     @Override
     public String[] expandHeaderForPictures(String[] header) {
-        if (columnMaxMapping.isEmpty()) {
+        return expandHeaderForPictures(header, columnMaxMapping);
+    }
+
+    /**
+     * Expands header array for multi-picture columns using the given expansion mapping.
+     */
+    @Override
+    public String[] expandHeaderForPictures(String[] header, Map<Integer, Integer> columnMax) {
+        if (columnMax == null || columnMax.isEmpty()) {
             return header;
         }
         List<String> newHeader = new ArrayList<>();
         for (int i = 0; i < header.length; i++) {
-            Integer maxNum = columnMaxMapping.get(i);
+            Integer maxNum = columnMax.get(i);
             String headName = header[i];
             newHeader.add(headName);
             if (maxNum != null) {

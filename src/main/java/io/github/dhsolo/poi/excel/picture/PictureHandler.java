@@ -151,6 +151,31 @@ public interface PictureHandler {
      */
     Map<Integer, Integer> getColumnMaxMapping();
 
+    /**
+     * Returns the column-expansion mapping computed by the most recent
+     * {@link #checkPictureMaxSize} call only. On a complex multi-section sheet the handler is
+     * shared and {@link #getColumnMaxMapping()} accumulates entries from every section, whose
+     * data-column key spaces collide; per-section layout decisions must use this view instead.
+     *
+     * @return column-index → max-extra-image-count map for the last analysed section
+     */
+    default Map<Integer, Integer> getSectionColumnMaxMapping() {
+        return getColumnMaxMapping();
+    }
+
+    /**
+     * Variant of {@link #expandHeaderForPictures(String[])} driven by an explicit expansion
+     * mapping (typically {@link #getSectionColumnMaxMapping()}), so a section of a complex
+     * sheet is not expanded by another section's entries.
+     *
+     * @param header    the header labels to expand
+     * @param columnMax column-index → max-extra-image-count map to apply
+     * @return the expanded header (the same array when no expansion applies)
+     */
+    default String[] expandHeaderForPictures(String[] header, Map<Integer, Integer> columnMax) {
+        return expandHeaderForPictures(header);
+    }
+
     /** Returns the filesystem path of the temporary image download directory. */
     String getCurrentPictureDownLoadDir();
 
