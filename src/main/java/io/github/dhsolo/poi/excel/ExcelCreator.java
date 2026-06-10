@@ -154,12 +154,15 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     // ===== Strategy chain: cell rendering =====
-    private final List<CellValueResolver> resolvers = Arrays.asList(
+    // Sorted by getOrder() so the documented priority (Picture 50 > Handler 100 > Translate 200
+    // > Plain) actually drives matching; the list used to be matched in hard-coded order, which
+    // let a handler hijack an @ExcelImage column and desync the multi-picture layout.
+    private final List<CellValueResolver> resolvers = java.util.stream.Stream.of(
             new HandlerCellResolver(),
             new PictureCellResolver(),
             new TranslateCellResolver(),
             new PlainCellResolver()
-    );
+    ).sorted(Comparator.comparingInt(CellValueResolver::getOrder)).collect(Collectors.toList());
 
     /**
      * Per-column resolver cache. The resolver for a column depends only on its
@@ -921,7 +924,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     // ==================== Cell merging ====================
 
     void mergeCells() {
-        if (tileCellRangeAddress != null) sheet.addMergedRegion(tileCellRangeAddress);
+        // POI rejects single-cell merged regions; a one-column sheet with a title produces one.
+        if (tileCellRangeAddress != null && tileCellRangeAddress.getNumberOfCells() > 1) {
+            sheet.addMergedRegion(tileCellRangeAddress);
+        }
         if (!diyRowContextCellRangeAddress.isEmpty())
             diyRowContextCellRangeAddress.forEach(f -> sheet.addMergedRegion(f));
         // First data row as actually written (captured at populateData entry). Re-deriving it
@@ -1023,10 +1029,11 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     }
 
     private List<?> resolveDataList() {
-        List<Object> data = new LinkedList<>();
-        if (object instanceof Map<?, ?> m) data.add(m);
-        else if (object instanceof List<?> l) data.addAll(l);
-        return data;
+        // Read-only view; called once per pipeline step plus once per merge column, so avoid
+        // copying the (possibly large) data list every time.
+        if (object instanceof List<?> l) return l;
+        if (object instanceof Map<?, ?> m) return List.of(m);
+        return List.of();
     }
 
     // ==================== Workbook creation (strategy pattern) ====================

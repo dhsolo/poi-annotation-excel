@@ -100,6 +100,10 @@ public class ExcelImportor {
 	private FormulaEvaluator formulaEvaluator;
 
 
+	/**
+	 * @deprecated does nothing (no stream is read); construct with {@link #ExcelImportor(InputStream)}.
+	 */
+	@Deprecated
 	public ExcelImportor(Object excelModel){
 
 	}
@@ -513,18 +517,21 @@ public class ExcelImportor {
 	}
 
 	private Object getFromMap(Map<?, ?> map, Object key, Class type) {
-		Object value = null;
-		Set<?> keys = map.keySet();
-		Iterator<?> it = keys.iterator();
-		while (it.hasNext()) {
-			Object mapKey = it.next();
-			if (key == mapKey || mapKey.equals(key.toString())) {
-				value = map.get(mapKey);
-				if (type != null)
-					value = caseObject(value, type);
-
+		Object value;
+		if (map.containsKey(key)) {
+			value = map.get(key);
+		} else {
+			value = null;
+			String keyText = key.toString();
+			for (Object mapKey : map.keySet()) {
+				if (mapKey != null && mapKey.equals(keyText)) {
+					value = map.get(mapKey);
+					break;
+				}
 			}
 		}
+		if (value != null && type != null)
+			value = caseObject(value, type);
 		return value;
 	}
 
@@ -787,7 +794,10 @@ public class ExcelImportor {
 						XSSFDrawing drawing = (XSSFDrawing) dr;
 						List<XSSFShape> shapes = drawing.getShapes();
 						for (XSSFShape shape : shapes) {
-							XSSFPicture pic = (XSSFPicture) shape;
+							// A sheet can also hold text boxes/shapes; only pictures are relevant
+							if (!(shape instanceof XSSFPicture pic)) {
+								continue;
+							}
 							XSSFClientAnchor anchor = pic.getPreferredSize();
 							CTMarker ctMarker = anchor.getFrom();
 							int pictureRow = ctMarker.getRow();

@@ -63,18 +63,22 @@ public class DefaultExcelExporter implements ExcelExporter {
         isZip = zip;
     }
 
+    /** Workbook re-read from the picture-injected temp file; cached so repeat calls agree. */
+    private Workbook recreatedBook;
+
     @Override
     public Workbook getWorkBook() {
         if (isZip && !isReCreate) {
             try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
-                Workbook recreated = WorkbookFactory.create(fis);
+                recreatedBook = WorkbookFactory.create(fis);
                 isReCreate = true;
-                return recreated;
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
-        return book;
+        // Without the cache a second call returned the original in-memory book, which lacks
+        // the injected pictures — two calls disagreed about the workbook contents.
+        return recreatedBook != null ? recreatedBook : book;
     }
 
     @Override
