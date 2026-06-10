@@ -242,6 +242,9 @@ public class ExcelTemplateFiller {
         // Insert (rows.size() - 1) new rows after the template row to make room
         if (rows.size() > 1) {
             sheet.shiftRows(templateRowIndex + 1, Math.max(sheet.getLastRowNum(), templateRowIndex + 1), rows.size() - 1);
+            // POI's shiftRows moves cells but NOT drawing anchors: pictures below the list
+            // region would otherwise stay put and end up overlapping the inserted rows.
+            shiftPictureAnchors(sheet, templateRowIndex, rows.size() - 1);
         }
 
         for (int i = 0; i < rows.size(); i++) {
@@ -252,6 +255,22 @@ public class ExcelTemplateFiller {
             }
             for (Cell cell : targetRow) {
                 fillCell(cell, resolvedContext);
+            }
+        }
+    }
+
+    /**
+     * Shifts picture (and other shape) anchors located strictly below {@code insertPoint}
+     * down by {@code shift} rows, mirroring what {@link Sheet#shiftRows} did to the cells.
+     */
+    private void shiftPictureAnchors(Sheet sheet, int insertPoint, int shift) {
+        if (shift <= 0) return;
+        Drawing<?> drawing = sheet.getDrawingPatriarch();
+        if (drawing == null) return;
+        for (Shape shape : drawing) {
+            if (shape.getAnchor() instanceof ClientAnchor anchor && anchor.getRow1() > insertPoint) {
+                anchor.setRow2(anchor.getRow2() + shift);
+                anchor.setRow1(anchor.getRow1() + shift);
             }
         }
     }

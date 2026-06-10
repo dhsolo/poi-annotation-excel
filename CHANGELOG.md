@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-10
+
+### Fixed
+- Importing from `sheetIndex > 0` via `ExcelUtil.importExcel`/`importExcelToMap` works: column
+  models used to be registered for sheet 0 regardless, so the Map variant returned one empty
+  map per row (silent data loss) and the typed variant threw `IndexOutOfBoundsException`.
+  `ExcelImportor` gained `addColumnName(int sheetNum, models)`; sheets without registered
+  columns are now skipped during parsing instead of producing empty rows.
+- `ImageUtils.resizeImage` no longer crashes on `TYPE_CUSTOM` images (a frequent ImageIO decode
+  result): the resize target falls back to `TYPE_INT_ARGB`/`TYPE_INT_RGB`, so resize-enabled
+  exports stop replacing such images with placeholders.
+- The column clones for `mergeCellIndex > 1` are now a field-by-field shallow copy instead of
+  Java-serialisation deep cloning, which threw `NotSerializableException` when the column
+  carried a non-serialisable member (e.g. an `@ExcelTranslateMethod` lambda).
+- The multi-sheet assembly helpers in `ExcelUtil` (`export`/`exportLocal`/`toInputStream`/
+  `toBytes` over multiple creators or builders) now close every creator, not just the first,
+  keeping the shared download-pool instance accounting balanced.
+- `ExcelTemplateFiller`: pictures anchored below the list region now shift together with the
+  rows inserted by list expansion (POI's `shiftRows` moves cells but not drawing anchors, so a
+  template's footer stamp/QR picture used to end up overlapping the inserted rows).
+
 ## [1.1.0] - 2026-06-10
 
 ### Added

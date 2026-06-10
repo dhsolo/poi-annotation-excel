@@ -258,7 +258,9 @@ public class ExcelUtil {
             first.createExcel();
             return first.getInputStream();
         } finally {
-            first.close();
+            // Close every creator, not just the first: the children were counted into the
+            // shared download-pool accounting at construction, and close() is idempotent.
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
@@ -378,7 +380,7 @@ public class ExcelUtil {
             first.createExcel();
             first.export(out, name);
         } finally {
-            first.close();
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
@@ -399,7 +401,7 @@ public class ExcelUtil {
             first.createExcel();
             first.exportLocal(localPath);
         } finally {
-            first.close();
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
@@ -451,7 +453,7 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(resolveColumns(clazz, columns));
+        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
         boolean ok = importor.analysisExcel();
         if (!ok) {
             throw new IllegalStateException("Excel parsing failed: " + importor.getErrorMessage());
@@ -490,7 +492,7 @@ public class ExcelUtil {
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> importExcelToMap(InputStream in, int sheetIndex, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(toLinkedList(columns));
+        importor.addColumnName(sheetIndex, toLinkedList(columns));
         boolean ok = importor.analysisExcel();
         if (!ok) {
             throw new IllegalStateException("Excel parsing failed: " + importor.getErrorMessage());
@@ -521,7 +523,7 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, int startRow, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(resolveColumns(clazz, columns));
+        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
         importor.setStartRow(startRow);
         boolean ok = importor.analysisExcel();
         if (!ok) {
@@ -544,7 +546,7 @@ public class ExcelUtil {
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> importExcelToMap(InputStream in, int sheetIndex, int startRow, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(toLinkedList(columns));
+        importor.addColumnName(sheetIndex, toLinkedList(columns));
         importor.setStartRow(startRow);
         boolean ok = importor.analysisExcel();
         if (!ok) {

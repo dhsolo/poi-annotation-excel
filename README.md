@@ -12,7 +12,7 @@ The key differentiator is **multi-level cascade dropdown validation** — a feat
 | Feature | Description |
 |---|---|
 | Annotation export & import | `@ExcelColumn`, `@ExcelInfo`, `@ExcelData`, `@ExcelRow` — same model drives both directions |
-| Cascade dropdowns | Arbitrary-depth linked dropdowns (e.g. 大类 → 小类 → 设备类型) |
+| Cascade dropdowns | Arbitrary-depth linked dropdowns (e.g. 大类 → 小类 → 设备类型); option values with characters illegal in Excel names (spaces, hyphens, ...) are substituted transparently |
 | Inline translation | `@ExcelColumn(translate = {"0:否","1:是"})` — no method needed |
 | Path extraction | `@ExcelColumn(sourcePath = "device.type")` for nested objects |
 | Template fill | `ExcelTemplateFiller` — `${placeholder}` substitution in templates |
@@ -21,6 +21,8 @@ The key differentiator is **multi-level cascade dropdown validation** — a feat
 | Image export | Parallel async download, original-format preserving (PNG/JPEG/GIF), disk-staged + STORED ZIP injection — memory-safe for large image sets |
 | Auto column width | `autoSizeColumns(true)` — fast sampled estimate (no per-cell font metrics) |
 | Custom validation | `ExcelCustomValidate` strategy for row-level business rules |
+| Configurable validation coverage | `@ExcelInfo(validateRowCount = ...)` — rows covered by dropdowns/formula pre-fill (default 1000) |
+| Grouped headers & nested flattening | `@ExcelColumnParent` two-row headers; `@ExcelInfoChild` recursive flattening (export + import) |
 | CSV support | Transparent CSV read via the same API |
 | XLS + XLSX | Both formats supported on export and import |
 
@@ -41,7 +43,7 @@ The key differentiator is **multi-level cascade dropdown validation** — a feat
 <dependency>
     <groupId>io.github.dhsolo</groupId>
     <artifactId>poi-annotation-excel</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.1</version>
 </dependency>
 ```
 

@@ -495,4 +495,46 @@ public class ExcelModel implements ExcelTranslateHandler, Serializable {
 
 	/** Returns the effective source field name: returns {@link #sourceField} if configured, otherwise {@link #fieldName}. */
 	public String effectiveSourceField() { return sourceField != null && !sourceField.isEmpty() ? sourceField : fieldName; }
+
+	/**
+	 * Shallow copy used for the column-expansion clones of {@code mergeCellIndex > 1}.
+	 * Reference members (translate map, handler function, cascade/custom-validate wrappers)
+	 * are shared, not deep-cloned — every clone describes the same logical column. This
+	 * replaces Java-serialisation cloning, which failed with NotSerializableException for
+	 * non-serialisable members such as {@code @ExcelTranslateMethod} lambdas.
+	 *
+	 * @return a field-by-field shallow copy of this model
+	 */
+	public ExcelModel copy() {
+		ExcelModel c = new ExcelModel(this.fieldName);
+		c.index = this.index;
+		c.realIndex = this.realIndex;
+		c.columnName = this.columnName;
+		c.noneCellDefaultValue = this.noneCellDefaultValue;
+		c.parent = this.parent;
+		c.needtranslate = this.needtranslate;
+		c.mergeCellIndex = this.mergeCellIndex;
+		c.cascadeValidateModel = this.cascadeValidateModel;
+		c.biFunction = this.biFunction;
+		c.translateMappingInfo = this.translateMappingInfo;
+		c.isPicture = this.isPicture;
+		c.isDate = this.isDate;
+		c.flattened = this.flattened;
+		c.pattern = this.pattern;
+		c.imageVisitPrex = this.imageVisitPrex;
+		c.imageDownPath = this.imageDownPath;
+		c.nullAble = this.nullAble;
+		c.needHandle = this.needHandle;
+		c.needAddTranslationException = this.needAddTranslationException;
+		c.isInteger = this.isInteger;
+		c.isFloat = this.isFloat;
+		c.isDouble = this.isDouble;
+		c.excelCustomValidate = this.excelCustomValidate;
+		c.isListBox = this.isListBox;
+		c.strFormula = this.strFormula;
+		c.isMergeIndexEnd = this.isMergeIndexEnd;
+		c.sourcePath = this.sourcePath;
+		c.sourceField = this.sourceField;
+		return c;
+	}
 }

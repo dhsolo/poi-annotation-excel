@@ -411,7 +411,7 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
                 boolean isFirst = true;
                 for (int i = 0; i < mci; i++) {
                     header[count.getAndIncrement()] = columnName;
-                    ExcelModel clone = Reflect.clone(excelModel);
+                    ExcelModel clone = excelModel.copy();
                     if (!isFirst) clone.setMergeIndexEnd(true);
                     isFirst = false;
                     excelModels.add(clone);
