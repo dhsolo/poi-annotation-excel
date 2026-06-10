@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+- Apache POI upgraded 5.2.5 → 5.5.1 (covers CVE-2025-31672 in OOXML parsing — the import path
+  parses user-supplied xlsx). Picture pre-registration was ported to POI ≥5.4's unmodifiable
+  `getAllPictures()` by appending through the workbook's internal picture list, with a guard
+  that fails loudly if POI internals change again.
+
+### Changed
+- Charset detection for CSV import now uses the maintained `com.github.albfernandez:juniversalchardet`
+  fork (2.5.0) instead of the unmaintained 2011 `com.googlecode` artifact (same package and API).
+- Tests route POI's internal log4j-api logging into slf4j (`log4j-to-slf4j`, test scope),
+  removing the spurious `StatusLogger` ERROR line from every build.
+
 ## [1.1.1] - 2026-06-10
 
 ### Fixed

@@ -20,6 +20,9 @@ import org.apache.poi.xssf.usermodel.XSSFPictureData;
 import org.apache.poi.xssf.usermodel.XSSFRelation;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import java.lang.reflect.Field;
+import java.util.List;
+
 /**
  * Business-level extension of {@link XSSFWorkbook} that adds support for registering
  * embedded JPEG pictures by relationship index.
@@ -68,10 +71,28 @@ public class BusinessXSSFWorkbook extends XSSFWorkbook {
     public void addPicture(int index, XSSFRelation relation){
         var rp = createRelationship(relation, XSSFFactory.getInstance(), index, true);
         XSSFPictureData img = rp.getDocumentPart();
-        if(index == 1){
-            getAllPictures();
-        }else {
-            getAllPictures().add(img);
+        // Anchors created during data population resolve pictures by index into the workbook's
+        // picture list, so the part created above must be registered there. The list returned
+        // by getAllPictures() is unmodifiable since POI 5.4, so append via the internal field;
+        // getAllPictures() is called first to trigger the lazy scan (which already picks up
+        // this part when the list was never initialised — hence the contains check).
+        getAllPictures();
+        List<XSSFPictureData> internal = internalPictures();
+        if (!internal.contains(img)) {
+            internal.add(img);
+        }
+    }
+
+    /** The workbook's internal (mutable) picture list. */
+    @SuppressWarnings("unchecked")
+    private List<XSSFPictureData> internalPictures() {
+        try {
+            Field f = XSSFWorkbook.class.getDeclaredField("pictures");
+            f.setAccessible(true);
+            return (List<XSSFPictureData>) f.get(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(
+                    "Cannot access XSSFWorkbook.pictures; POI internals changed — picture pre-registration needs porting", e);
         }
     }
 }
