@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format is based on
 - The multi-sheet assembly helpers in `ExcelUtil` (`export`/`exportLocal`/`toInputStream`/
   `toBytes` over multiple creators or builders) now close every creator, not just the first,
   keeping the shared download-pool instance accounting balanced.
+- `ExcelTemplateFiller`: pictures anchored below the list region now shift together with the
+  rows inserted by list expansion (POI's `shiftRows` moves cells but not drawing anchors, so a
+  template's footer stamp/QR picture used to end up overlapping the inserted rows).
 
 ## [1.1.0] - 2026-06-10
 
