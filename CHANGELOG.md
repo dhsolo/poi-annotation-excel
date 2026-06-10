@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format is based on
 - The column clones for `mergeCellIndex > 1` are now a field-by-field shallow copy instead of
   Java-serialisation deep cloning, which threw `NotSerializableException` when the column
   carried a non-serialisable member (e.g. an `@ExcelTranslateMethod` lambda).
+- The multi-sheet assembly helpers in `ExcelUtil` (`export`/`exportLocal`/`toInputStream`/
+  `toBytes` over multiple creators or builders) now close every creator, not just the first,
+  keeping the shared download-pool instance accounting balanced.
 
 ## [1.1.0] - 2026-06-10
 

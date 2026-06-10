@@ -61,6 +61,30 @@ class ResourceCleanupTest {
         assertThat(instanceCount()).isEqualTo(counted - 1);
     }
 
+    /**
+     * Regression: the multi-sheet assembly paths in ExcelUtil used to close only the first
+     * creator, leaving the children counted in the shared pool accounting forever.
+     */
+    @Test
+    void multiSheetExportClosesEveryCreator() throws Exception {
+        int before = instanceCount();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ExcelUtil.export(out, "multi.xlsx",
+                sheetCreator("s1"), sheetCreator("s2"), sheetCreator("s3"));
+        assertThat(out.size()).isGreaterThan(0);
+        assertThat(instanceCount()).isEqualTo(before);
+    }
+
+    private static ExcelCreator sheetCreator(String name) {
+        ExcelCreator creator = new ExcelCreator("xlsx", name, false);
+        creator.setHeader(new String[]{"名称"});
+        Map<Integer, ExcelModel> mapping = new java.util.HashMap<>();
+        mapping.put(0, ExcelCreator.generate("name"));
+        creator.setColumnMappingInfo(mapping);
+        creator.setObject(List.of(new Bean("a")));
+        return creator;
+    }
+
     @Test
     void bigDataExportAndCloseDisposesWithoutError() throws Exception {
         ExcelCreator creator = new ExcelCreator("xlsx", "big", true);

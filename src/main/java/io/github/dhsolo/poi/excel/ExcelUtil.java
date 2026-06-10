@@ -258,7 +258,9 @@ public class ExcelUtil {
             first.createExcel();
             return first.getInputStream();
         } finally {
-            first.close();
+            // Close every creator, not just the first: the children were counted into the
+            // shared download-pool accounting at construction, and close() is idempotent.
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
@@ -378,7 +380,7 @@ public class ExcelUtil {
             first.createExcel();
             first.export(out, name);
         } finally {
-            first.close();
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
@@ -399,7 +401,7 @@ public class ExcelUtil {
             first.createExcel();
             first.exportLocal(localPath);
         } finally {
-            first.close();
+            for (ExcelCreator c : creators) c.close();
         }
     }
 
