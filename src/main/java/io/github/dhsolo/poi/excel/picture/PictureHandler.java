@@ -17,6 +17,8 @@ package io.github.dhsolo.poi.excel.picture;
 
 import io.github.dhsolo.poi.excel.ExcelModel;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Drawing;
+import org.apache.poi.ss.usermodel.Sheet;
 
 import java.io.File;
 import java.util.List;
@@ -168,12 +170,30 @@ public interface PictureHandler {
      * mapping (typically {@link #getSectionColumnMaxMapping()}), so a section of a complex
      * sheet is not expanded by another section's entries.
      *
+     * <p><strong>Implementations should override this method.</strong> The default merely
+     * delegates to the single-argument variant and ignores {@code columnMax}, which is only
+     * correct for single-section sheets.
+     *
      * @param header    the header labels to expand
      * @param columnMax column-index → max-extra-image-count map to apply
      * @return the expanded header (the same array when no expansion applies)
      */
     default String[] expandHeaderForPictures(String[] header, Map<Integer, Integer> columnMax) {
         return expandHeaderForPictures(header);
+    }
+
+    /**
+     * Rebinds the sheet (and its drawing patriarch) that subsequent picture anchors target.
+     * One handler instance is shared across all sheets of a workbook so that the download
+     * directory, image numbering, and ZIP staging stay coordinated; each child sheet binds
+     * itself here before its data is populated.
+     *
+     * @param sheet   the sheet new anchors should land on
+     * @param drawing that sheet's drawing patriarch
+     */
+    @SuppressWarnings("rawtypes")
+    default void bindSheet(Sheet sheet, Drawing drawing) {
+        // default: single-sheet handlers need no rebinding
     }
 
     /** Returns the filesystem path of the temporary image download directory. */

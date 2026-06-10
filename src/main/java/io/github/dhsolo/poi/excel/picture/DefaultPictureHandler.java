@@ -57,8 +57,9 @@ public class DefaultPictureHandler implements PictureHandler {
 
     private final Workbook book;
     private final String currentExcelType;
-    private final Sheet sheet;
-    private final Drawing drawing;
+    /** Sheet/drawing currently targeted by anchors; rebindable so child sheets can share this handler. */
+    private Sheet sheet;
+    private Drawing drawing;
     private final String imagesSeparator;
     /** Pre-compiled split pattern for {@link #imagesSeparator}, reused across all cells. */
     private final Pattern imagesSeparatorPattern;
@@ -104,6 +105,12 @@ public class DefaultPictureHandler implements PictureHandler {
         this.imagesSeparatorPattern = Pattern.compile(imagesSeparator != null ? imagesSeparator : ",");
         this.executor = executor;
         this.valueExtractor = valueExtractor;
+    }
+
+    @Override
+    public void bindSheet(Sheet sheet, Drawing drawing) {
+        this.sheet = sheet;
+        this.drawing = drawing;
     }
 
     @Override

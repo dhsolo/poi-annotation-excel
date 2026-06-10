@@ -646,6 +646,11 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         sectionColumnMaxMapping = new HashMap<>(pictureHandler.getSectionColumnMaxMapping());
         String[] expandedHeader = pictureHandler.expandHeaderForPictures(header, sectionColumnMaxMapping);
         if (expandedHeader != header) header = expandedHeader;
+        if (!sectionColumnMaxMapping.isEmpty()) {
+            // Multi-picture expansion shifts physical columns; refresh each model's realIndex
+            // (the column targeted by dropdown/formula validation) now that the layout is known.
+            columnMappingInfo.forEach((dataIdx, model) -> model.setRealIndex(physicalColumn(dataIdx)));
+        }
     }
 
     /**
@@ -762,6 +767,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.existNamaManager = existNamaManager;
             ec.atomicInteger.set(atomicInteger.get());
             if (pictureHandler != null) ec.pictureHandler = pictureHandler;
+            // Complex children never run initHelpers, so without this their dropdown/cascade/
+            // formula validations were silently skipped (dataValidator == null).
+            ec.dataValidator = new DefaultDataValidator(book, sheet, currentExcelType,
+                    hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
+                    ec.columnNameModelMappingInfo);
+            ec.dataValidator.setCurrentListNum(ec.currentListNum);
             ec.defaultCellStyle();
             ec.createExcel();
             if (pictureHandler != null && !pictureHandler.hasPicture() && ec.pictureHandler.hasPicture()) {
@@ -769,6 +780,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             }
             rowNum = ec.rowNum;
             currentDiyContextRow = ec.currentDiyContextRow;
+            currentListNum = ec.currentListNum;
+            atomicInteger.set(ec.atomicInteger.get());
             ex.set(ec);
         });
     }
@@ -1039,9 +1052,26 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.drawing = ec.sheet.createDrawingPatriarch();
             ec.currentExcelType = currentExcelType;
             ec.hiddenSheetListBox = hiddenSheetListBox;
+            // The helpers the child built in initHelpers() are bound to its discarded original
+            // workbook/sheet — pictures and validations would land in an orphaned book.
+            // Share the parent's picture handler (download dir, image numbering, and ZIP
+            // staging are coordinated workbook-wide), bound to the child's sheet, and rebuild
+            // the validator against the shared workbook + the child's sheet.
+            if (pictureHandler != null) {
+                pictureHandler.bindSheet(ec.sheet, ec.drawing);
+                ec.pictureHandler = pictureHandler;
+            }
+            ec.dataValidator = new DefaultDataValidator(book, ec.sheet, currentExcelType,
+                    hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
+                    ec.columnNameModelMappingInfo);
+            ec.dataValidator.setCurrentListNum(ec.currentListNum);
+            // Marking the child "complex" suppresses its own picture-dir creation and
+            // post-processing — the parent owns both for the shared handler.
+            ec.isChildComplex = true;
             ec.defaultCellStyle();
             ec.createExcel();
             concurrentRowNum = ec.currentListNum;
+            atomicInteger.set(ec.atomicInteger.get());
         }
         currentListNum = concurrentRowNum;
     }
@@ -1799,6 +1829,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      */
     public void close() {
         if (pictureHandler != null) pictureHandler.cleanup();
+        if (exporter != null) exporter.close();
         disposeOwnStreamingBook();
         // GETTER_CACHE is a static shared cache; do not clear it on instance close to avoid affecting other concurrent instances
         // Only instances counted in initHelpers() may decrement: a wrapper creator built via
