@@ -184,6 +184,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private Integer rowHeight;
     private Drawing drawing;
     private int rowNum;
+    /** Absolute row where the data block starts; captured at populateData entry, used by mergeCells. */
+    private int firstDataRowNum;
     private boolean excelCreated = false;
     private boolean isBigData = false;
 
@@ -638,6 +640,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     void populateData() {
         List<?> data = resolveDataList();
+        // Capture where the data block actually starts (headers/title/custom rows are all
+        // written by now). mergeCells uses this instead of re-deriving the layout.
+        firstDataRowNum = rowNum;
         CellStyle dataCellStyle = styleManager.getCellStyle();
 
         for (int i = 0; i < data.size(); i++) {
@@ -665,7 +670,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 } else {
                     int dataIdx = j - pictureOffset - orderOffset;
                     ExcelModel excelModel = columnMappingInfo.get(dataIdx);
-                    if (excelModel == null) continue;
+                    if (excelModel == null) {
+                        // Should be unreachable; loud trace so a future physical/data column
+                        // desync does not silently produce blank cells.
+                        logger.warn("No column model for physical column {} (data column {}); cell left blank", j, dataIdx);
+                        continue;
+                    }
 
                     CellResolveContext ctx = new CellResolveContext(
                             this, this, cell, row, sheet, excelModel, obj, j, dataIdx, i,
@@ -835,10 +845,13 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 sheet.setColumnWidth(i, cw != null ? cw : DEFAULT_COLUMN_WIDTH * 255);
                 if (needOrderNum && i < orderColumnSpan) {
                     cell.setCellValue("序号");
-                } else if (needOrderNum && i == orderColumnSpan && orderColumnSpan > 1) {
-                    setMergeColumn(rowNum, rowNum, 0, orderColumnSpan - 1);
+                    if (i == orderColumnSpan - 1 && orderColumnSpan > 1) {
+                        setMergeColumn(rowNum, rowNum, 0, orderColumnSpan - 1);
+                    }
                 } else {
-                    int idx = needOrderNum ? i - 1 : i;
+                    // Skip the whole order block, not just one column: with orderColumnSpan > 1
+                    // the old "i - 1" read past the end of the header array.
+                    int idx = needOrderNum ? i - orderColumnSpan : i;
                     if (headerName == null) {
                         headerName = header[idx];
                         startColumn = endColumn = i;
@@ -903,19 +916,21 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         if (tileCellRangeAddress != null) sheet.addMergedRegion(tileCellRangeAddress);
         if (!diyRowContextCellRangeAddress.isEmpty())
             diyRowContextCellRangeAddress.forEach(f -> sheet.addMergedRegion(f));
-        int baseRowNum = 0;
-        if (title != null && title.trim().length() != 0) baseRowNum++;
-        if (header != null && header.length != 0) baseRowNum++;
-        // @ExcelColumnParent adds a grouped-header row above the column header
-        // (written under the same condition in writeHeaderAndTitle).
-        if (parentHeaders != null && !parentHeaders.isEmpty()
-                && header != null && header.length != 0) baseRowNum++;
-        baseRowNum += diyRowContextCellModelMap.size();
+        // First data row as actually written (captured at populateData entry). Re-deriving it
+        // from the title/diy/grouped-header layout rules kept desyncing from writeHeaderAndTitle
+        // (grouped headers, title-less custom rows, complex multi-section sheets).
+        int baseRowNum = firstDataRowNum;
         if (columnMergeInfo != null) {
             for (Map.Entry<Integer, String> entry : columnMergeInfo.entrySet()) {
-                int indexColumn = entry.getKey();
+                // Translate the data column to its physical column: the order column block and
+                // the extra columns of multi-picture expansion to its left both shift it.
+                int indexColumn = entry.getKey() + (needOrderNum ? orderColumnSpan : 0);
+                if (pictureHandler != null) {
+                    for (Map.Entry<Integer, Integer> pic : pictureHandler.getColumnMaxMapping().entrySet()) {
+                        if (pic.getKey() < entry.getKey()) indexColumn += pic.getValue();
+                    }
+                }
                 int index = 0;
-                if (needOrderNum) indexColumn++;
                 String field = entry.getValue();
                 List dataList = resolveDataList();
                 Object currentValue = null;

@@ -67,9 +67,87 @@ class VerticalMergeRowOffsetTest {
         }
     }
 
+    /**
+     * Regression: with {@code orderColumnSpan > 1} the merge target column must shift by the
+     * whole order block (it used to shift by one), and the header row must not read past the
+     * header array (it used to throw {@code ArrayIndexOutOfBoundsException}).
+     */
+    @Test
+    void mergeTargetsShiftByWholeOrderBlock() {
+        OrderSpanModel m = new OrderSpanModel();
+        m.rows = rows();
+        try (ExcelCreator creator = new ExcelCreator(m)) {
+            creator.createExcel();
+            Sheet sheet = creator.getWorkBook().getSheetAt(0);
+            // layout: title=0, header=1, data=2..4 ; order block = cols 0-1, group col = 2
+            assertThat(sheet.getRow(1).getCell(2).getStringCellValue()).isEqualTo("分组");
+            assertThat(sheet.getRow(1).getCell(3).getStringCellValue()).isEqualTo("一季度");
+            CellRangeAddress vertical = findVerticalMergeInColumn(sheet, 2, 2);
+            assertThat(vertical).isNotNull();
+            assertThat(vertical.getFirstRow()).isEqualTo(2);
+            assertThat(vertical.getLastRow()).isEqualTo(3);
+        }
+    }
+
+    /**
+     * Regression: a before-title custom row is never written when the model has no title, but
+     * it used to be counted into the merge base row, shifting the merge one row down.
+     */
+    @Test
+    void unwrittenBeforeTitleCustomRowDoesNotShiftMerge() {
+        NoTitleModel m = new NoTitleModel();
+        m.rows = rows();
+        try (ExcelCreator creator = new ExcelCreator(m)) {
+            // before-title custom row; with no title it is silently dropped by writeHeaderAndTitle
+            creator.addDiyRowContext("备注", 0, 0, null, null, false, 500, false);
+            creator.createExcel();
+            Sheet sheet = creator.getWorkBook().getSheetAt(0);
+            // layout: header=0, data=1..3 ; merge rows 1-2 in col 0
+            CellRangeAddress vertical = findDataRowVerticalMerge(sheet, 1);
+            assertThat(vertical).isNotNull();
+            assertThat(vertical.getFirstRow()).isEqualTo(1);
+            assertThat(vertical.getLastRow()).isEqualTo(2);
+        }
+    }
+
+    /**
+     * Regression: in a complex multi-section sheet, a child section's vertical merge must land
+     * inside the child's own data block; the base row used to be derived as if the section
+     * started at the top of the sheet.
+     */
+    @Test
+    void complexChildSectionMergeLandsInItsOwnDataBlock() {
+        ComplexParent parent = new ComplexParent();
+        parent.rows = List.of(new NameBean("x"), new NameBean("y"));
+        ChildSection child = new ChildSection();
+        child.rows = rows();
+        parent.child = child;
+        try (ExcelCreator creator = new ExcelCreator(parent)) {
+            creator.createExcel();
+            Sheet sheet = creator.getWorkBook().getSheetAt(0);
+            // layout: parent title=0, parent header=1, parent data=2..3,
+            //         child title=4, child header=5, child data=6..8 ; merge rows 6-7 in col 0
+            CellRangeAddress vertical = findDataRowVerticalMerge(sheet, 6);
+            assertThat(vertical).isNotNull();
+            assertThat(vertical.getFirstRow()).isEqualTo(6);
+            assertThat(vertical.getLastRow()).isEqualTo(7);
+        }
+    }
+
     /** First multi-row merge in column 0 (no parent header: the only one is the data merge). */
     private static CellRangeAddress findVerticalMerge(Sheet sheet) {
         return findDataRowVerticalMerge(sheet, 0);
+    }
+
+    /** Multi-row merge confined to the given column starting at or below {@code minFirstRow}. */
+    private static CellRangeAddress findVerticalMergeInColumn(Sheet sheet, int column, int minFirstRow) {
+        for (CellRangeAddress r : sheet.getMergedRegions()) {
+            if (r.getFirstColumn() == column && r.getLastColumn() == column
+                    && r.getFirstRow() != r.getLastRow() && r.getFirstRow() >= minFirstRow) {
+                return r;
+            }
+        }
+        return null;
     }
 
     /** Multi-row merge in column 0 starting at or below {@code minFirstRow} (skips header merges). */
@@ -111,6 +189,79 @@ class VerticalMergeRowOffsetTest {
     public static class PlainModel {
         @ExcelTitle
         public String title = "标题";
+
+        @ExcelColumn(columnName = "分组", index = 1, needMergeCell = true)
+        private String group;
+
+        @ExcelColumn(columnName = "一季度", index = 2, sourceField = "q1")
+        private Integer q1;
+
+        @ExcelData
+        public List<RowBean> rows;
+    }
+
+    @ExcelInfo(sheetName = "orderSpan", needOrder = true, orderColumnSpan = 2)
+    public static class OrderSpanModel {
+        @ExcelTitle
+        public String title = "标题";
+
+        @ExcelColumn(columnName = "分组", index = 1, needMergeCell = true)
+        private String group;
+
+        @ExcelColumn(columnName = "一季度", index = 2, sourceField = "q1")
+        private Integer q1;
+
+        @ExcelData
+        public List<RowBean> rows;
+    }
+
+    @ExcelInfo(sheetName = "noTitle")
+    public static class NoTitleModel {
+        @ExcelColumn(columnName = "分组", index = 1, needMergeCell = true)
+        private String group;
+
+        @ExcelColumn(columnName = "一季度", index = 2, sourceField = "q1")
+        private Integer q1;
+
+        @ExcelData
+        public List<RowBean> rows;
+    }
+
+    public static class NameBean {
+        private final String name;
+
+        public NameBean(String name) {
+            this.name = name;
+        }
+
+        public String getName() { return name; }
+    }
+
+    @ExcelInfo(sheetName = "complex")
+    public static class ComplexParent implements io.github.dhsolo.poi.excel.model.ComplexExcelModel {
+        @ExcelTitle
+        public String title = "主表";
+
+        @ExcelColumn(columnName = "名称", index = 1)
+        private String name;
+
+        @ExcelColumn(columnName = "编码", index = 2, sourceField = "name")
+        private String code;
+
+        @ExcelData
+        public List<NameBean> rows;
+
+        ChildSection child;
+
+        @Override
+        @SuppressWarnings("rawtypes")
+        public List getComplexModels() { return List.of(child); }
+    }
+
+    @ExcelInfo(sheetName = "childSection")
+    public static class ChildSection {
+        @ExcelTitle
+        public String title = "子表";
 
         @ExcelColumn(columnName = "分组", index = 1, needMergeCell = true)
         private String group;
