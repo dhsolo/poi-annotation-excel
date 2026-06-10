@@ -56,6 +56,8 @@ public class DefaultDataValidator implements DataValidator {
     private final Map<String, ExcelModel> columnNameModelMappingInfo;
     private int currentListNum;
     private int rowNum;
+    /** Data rows (from the first data row) covered by dropdowns/formula pre-fill. */
+    private int validationRowCount = 1000;
 
     private DataValidationConstraint listBoxValidate;
 
@@ -75,6 +77,18 @@ public class DefaultDataValidator implements DataValidator {
         this.existNamaManager = existNamaManager;
         this.atomicInteger = atomicInteger;
         this.columnNameModelMappingInfo = columnNameModelMappingInfo;
+    }
+
+    @Override
+    public void setValidationRowCount(int rowCount) {
+        if (rowCount > 0) {
+            this.validationRowCount = rowCount;
+        }
+    }
+
+    /** Last sheet row (inclusive) covered by validations, given the current first data row. */
+    private int lastValidationRow() {
+        return rowNum + validationRowCount - 1;
     }
 
     @Override
@@ -177,7 +191,7 @@ public class DefaultDataValidator implements DataValidator {
             strFormula = prefix + columnChar + substring;
         }
         String finalStrFormula1 = strFormula;
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < validationRowCount; i++) {
             int i1 = rowNum + i;
             // Prefer reusing an existing row via getRow to avoid overwriting data rows with createRow
             Row row1 = sheet.getRow(i1) != null ? sheet.getRow(i1) : sheet.createRow(i1);
@@ -273,7 +287,7 @@ public class DefaultDataValidator implements DataValidator {
         String format = String.format("listConstantData!$A$%s:$A$%s", start, currentListNum - 2);
         if (cascadeValidateModel.getParentValue() == null) {
             model.setStrFormula(format);
-            createCellListBoxFormal(rowNum, 1000, realIndex, realIndex, model.getStrFormula(),
+            createCellListBoxFormal(rowNum, lastValidationRow(), realIndex, realIndex, model.getStrFormula(),
                     cascadeValidateModel.isNeedAddTranslationException());
         }
 
@@ -312,15 +326,15 @@ public class DefaultDataValidator implements DataValidator {
             }
             name.setRefersToFormula(format);
             if (!existINDIRECT.containsKey(realIndex)) {
-                CellRangeAddressList regions = new CellRangeAddressList(rowNum, 1000, realIndex, realIndex);
-                String cellListBoxFormal = createCellListBoxFormal(rowNum, 1000, realIndex, realIndex, cascadeValidateModel, pddStr);
+                CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
+                String cellListBoxFormal = createCellListBoxFormal(rowNum, lastValidationRow(), realIndex, realIndex, cascadeValidateModel, pddStr);
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.computeIfAbsent(realIndex, k -> new LinkedHashMap<>());
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(
                         cascadeValidateModel.getParentValue().getOwnModel().getExcelModel().getFieldName(), k -> new LinkedHashMap<>());
                 stringCellRangeAddressListMap.put(cellListBoxFormal, regions);
             } else {
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.get(realIndex);
-                CellRangeAddressList regions = new CellRangeAddressList(rowNum, 1000, realIndex, realIndex);
+                CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
                 String cellListBoxFormal = generateFormal(rowNum + 1, cascadeValidateModel, pddStr);
                 cellListBoxFormal = String.format("IF(%s=\"%s\",%s,@@)", cellListBoxFormal, parentValuePath, cellListBoxFormal);
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(

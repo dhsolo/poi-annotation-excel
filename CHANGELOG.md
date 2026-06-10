@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format is based on
 - Parallel image download overlapped with data population; downloaded media injected into
   the workbook ZIP as `STORED` entries (no wasteful re-deflate).
 - Disabled-by-default import benchmark (`ImportBenchmarkTest`) comparing DOM vs SAX import.
+- Configurable validation/formula row coverage: dropdown-list validations and `@ExcelFormula`
+  pre-fill cover `@ExcelInfo(validateRowCount = ...)` data rows (default `1000`, previously
+  hardcoded); also settable via `ExcelCreator.setValidationRowCount(int)` and the builder's
+  `validationRowCount(int)`.
 
 ### Changed
 - `@ExcelInfo` attribute `orderMergeIndex` renamed to `orderColumnSpan` for clarity.

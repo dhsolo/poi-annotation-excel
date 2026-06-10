@@ -76,6 +76,7 @@ List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportMo
 | `imageSeparator` | String | `""` | 单元格内多图 URL 的分隔符（空则按 `,`） |
 | `pictureInnerType` | int | `0` | 图片锚定方式，见 [AnchorType](#15-枚举与常量) |
 | `isBigData` | boolean | `true` | 是否用 SXSSF 流式写（大数据省内存） |
+| `validateRowCount` | int | `1000` | 下拉校验/`@ExcelFormula` 公式预填覆盖的数据行数（自首个数据行起算） |
 | `imageResize` | `@ExcelImageResize` | 不缩放 | 全局图片缩放策略 |
 | `noneCellDefaultValue` | String | `""` | 字段为 null/空时写入的默认文本 |
 
@@ -160,6 +161,10 @@ private LocalTime shiftTime;        // 时间单元格（一天的分数）
 
 ### `@ExcelListBox`（字段或方法）
 给列附加下拉校验列表。`listTextBox` 为静态候选；标注在方法上则运行时动态提供（方法名由 `columnName` 关联到列）。`isNeedAddTranslationException` 控制是否为翻译值加例外。
+
+下拉校验默认覆盖自首个数据行起的 **1000 行**，可通过 `@ExcelInfo(validateRowCount = ...)`、
+`ExcelCreator.setValidationRowCount(int)` 或 Builder 的 `validationRowCount(int)` 调整
+（模板预期接收更多行时调大，小模板可调小瘦身）。`@ExcelFormula` 的公式预填行数同受此配置控制。
 
 ### `@ExcelTranslateMethod(columnName)`（方法）
 为指定列提供自定义翻译函数，方法须返回 `Function`。比 `@ExcelColumn.translate` 更灵活（复杂映射）。同时存在时方法优先。

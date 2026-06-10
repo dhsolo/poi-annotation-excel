@@ -218,6 +218,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private int headerRowHeight = DEFAULT_ROW_HEIGHT;
     private int imageReadTimeOut;
     private int pictureType = 0;
+    /** Data rows (from the first data row) covered by dropdown validations / formula pre-fill. */
+    private int validationRowCount = 1000;
 
     // ===== Mapping and merging =====
     private Map<Integer, ExcelModel> columnMappingInfo = new LinkedHashMap<>();
@@ -563,6 +565,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         this.setNeedOrderNum(info.needOrder());
         this.pictureType = info.pictureInnerType();
         this.imageReadTimeOut = info.imageReadTimeOut();
+        if (info.validateRowCount() > 0) this.validationRowCount = info.validateRowCount();
         setTitleRowHeight(info.titleHeight());
         setHeaderRowHeight(info.headerHeight());
         setImagesSeparator(Reflect.hasText(info.imageSeparator()) ? info.imageSeparator() : ",");
@@ -585,6 +588,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         dataValidator = new DefaultDataValidator(book, sheet, currentExcelType, hiddenSheetListBox,
                 isBigData, existNamaManager, atomicInteger, columnNameModelMappingInfo);
         dataValidator.setCurrentListNum(currentListNum);
+        dataValidator.setValidationRowCount(validationRowCount);
 
         exporter = new DefaultExcelExporter(book, currentExcelType);
         pipeline = new ExcelCreatePipeline(this);
@@ -1098,6 +1102,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 hiddenSheetListBox, isBigData, existNamaManager, ec.atomicInteger,
                 ec.columnNameModelMappingInfo);
         validator.setCurrentListNum(ec.currentListNum);
+        validator.setValidationRowCount(ec.validationRowCount);
         return validator;
     }
 
@@ -1602,6 +1607,21 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      * @param t timeout in milliseconds
      */
     public void setImageReadTimeOut(int t) { imageReadTimeOut = t; }
+
+    /**
+     * Sets how many data rows (counted from the first data row) dropdown-list validations and
+     * {@code @ExcelFormula} formula pre-fill cover. Defaults to {@code 1000}; rows beyond the
+     * count carry no validation/formula. Annotation models can set this via
+     * {@code @ExcelInfo(validateRowCount = ...)}.
+     *
+     * @param rowCount the number of data rows to cover; values &lt; 1 are ignored
+     */
+    public void setValidationRowCount(int rowCount) {
+        if (rowCount > 0) {
+            validationRowCount = rowCount;
+            if (dataValidator != null) dataValidator.setValidationRowCount(rowCount);
+        }
+    }
 
     /**
      * Sets the width of a specific column and records it in the internal width map.

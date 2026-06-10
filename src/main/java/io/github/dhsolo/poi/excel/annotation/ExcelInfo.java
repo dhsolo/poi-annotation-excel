@@ -132,6 +132,14 @@ public @interface ExcelInfo {
 	boolean isBigData() default true;
 
 	/**
+	 * Number of data rows (counted from the first data row) covered by dropdown-list
+	 * validations and {@code @ExcelFormula} formula pre-fill. Rows beyond this count carry
+	 * no validation/formula. Increase for templates expected to receive more rows; decrease
+	 * to keep small templates lean.
+	 */
+	int validateRowCount() default 1000;
+
+	/**
 	 * Image resize settings applied globally to all image columns in this sheet.
 	 * Defaults to no resizing ({@code needResize = false}).
 	 *
