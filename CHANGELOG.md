@@ -36,6 +36,9 @@ All notable changes to this project are documented here. The format is based on
 - `ImageUtils.urlEncoder` percent-encodes every character a URL cannot legally carry (spaces,
   all non-ASCII blocks, quotes, ...) per RFC 3986 — it used to encode only the CJK basic block.
   Already-encoded `%XX` sequences and reserved characters pass through unchanged.
+- Date cell styles follow a custom data style set via `setCellStyle`: the per-pattern date
+  style cache is invalidated, so date cells no longer keep the stale default look while their
+  neighbours use the custom style.
 
 ## [1.1.1] - 2026-06-10
 

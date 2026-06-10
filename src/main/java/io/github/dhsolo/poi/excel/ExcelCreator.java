@@ -1272,7 +1272,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      *
      * @param s the custom {@link CellStyle} to apply to data cells
      */
-    public void setCellStyle(CellStyle s) { if (styleManager != null) styleManager.setCellStyle(s); }
+    public void setCellStyle(CellStyle s) {
+        if (styleManager != null) styleManager.setCellStyle(s);
+        // Date cell styles are cloned from the data style per format pattern; drop the cache so
+        // they are rebuilt from the new custom style instead of the stale default.
+        dateStyleCache.clear();
+    }
 
     /**
      * Replaces the default header row cell style with a custom one.
