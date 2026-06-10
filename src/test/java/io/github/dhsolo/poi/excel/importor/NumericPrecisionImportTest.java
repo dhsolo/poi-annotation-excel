@@ -66,6 +66,15 @@ class NumericPrecisionImportTest {
         assertThat(rows.get(0).get("v").toString()).isEqualTo("12345");
     }
 
+    /** NaN/Infinity cannot be represented as BigDecimal; formart must pass them through as text. */
+    @Test
+    void nanAndInfinityArePassedThroughAsText() throws Exception {
+        ExcelImportor importor = new ExcelImportor(new ByteArrayInputStream(workbookWithNumericCell(1.0)));
+        assertThat(importor.formart(Double.NaN)).isEqualTo("NaN");
+        assertThat(importor.formart(Double.POSITIVE_INFINITY)).isEqualTo("Infinity");
+        assertThat(importor.formart(Double.NEGATIVE_INFINITY)).isEqualTo("-Infinity");
+    }
+
     private static byte[] workbookWithNumericCell(double value) throws Exception {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = wb.createSheet("Sheet1");

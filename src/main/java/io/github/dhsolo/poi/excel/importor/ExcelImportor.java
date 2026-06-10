@@ -729,7 +729,11 @@ public class ExcelImportor {
 		// NumberFormat.getInstance() silently rounds to 3 fraction digits; go through
 		// BigDecimal so the full numeric precision of the cell survives the import.
 		if (object instanceof Number) {
-			return new java.math.BigDecimal(object.toString()).stripTrailingZeros().toPlainString();
+			String s = object.toString();
+			if ("NaN".equals(s) || s.endsWith("Infinity")) {
+				return s; // BigDecimal cannot represent these
+			}
+			return new java.math.BigDecimal(s).stripTrailingZeros().toPlainString();
 		}
 		return object.toString();
 	}
