@@ -39,6 +39,9 @@ import org.apache.poi.ss.usermodel.Sheet;
  * @param model                column metadata describing how this cell should be rendered
  * @param dataObj              the row data object from which the cell value is extracted
  * @param colIndex             0-based physical column index of {@code cell} in the sheet
+ * @param dataColIndex         0-based data-column index (the {@code columnMappingInfo} key);
+ *                             differs from {@code colIndex} when an order column or the extra
+ *                             columns of an earlier multi-picture expansion shift the layout
  * @param rowIndex             0-based data-row index (offset from the first data row)
  * @param rowNum               absolute 0-based row number of the first data row in the sheet;
  *                             the cell's sheet row is {@code rowNum + rowIndex}
@@ -60,9 +63,33 @@ public record CellResolveContext(
         ExcelModel model,
         Object dataObj,
         int colIndex,
+        int dataColIndex,
         int rowIndex,
         int rowNum,
         String noneCellDefaultValue,
         CellStyle dataCellStyle,
         PictureHandler pictureHandler
-) {}
+) {
+
+    /**
+     * Compatibility constructor predating {@code dataColIndex}; defaults it to {@code colIndex}
+     * (correct whenever no order column or multi-picture expansion shifts the layout).
+     */
+    public CellResolveContext(
+            CellValueSetter cellValueSetter,
+            ValueExtractor valueExtractor,
+            Cell cell,
+            Row row,
+            Sheet sheet,
+            ExcelModel model,
+            Object dataObj,
+            int colIndex,
+            int rowIndex,
+            int rowNum,
+            String noneCellDefaultValue,
+            CellStyle dataCellStyle,
+            PictureHandler pictureHandler) {
+        this(cellValueSetter, valueExtractor, cell, row, sheet, model, dataObj,
+                colIndex, colIndex, rowIndex, rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler);
+    }
+}

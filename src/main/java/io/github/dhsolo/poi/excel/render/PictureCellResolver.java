@@ -75,7 +75,9 @@ public class PictureCellResolver implements CellValueResolver {
                 ctx.colIndex(), ctx.rowNum() + ctx.rowIndex(),
                 imageUrl, ctx.cell());
 
-        var columnMaxNum = ctx.pictureHandler().getColumnMaxMapping().get(ctx.colIndex());
+        // columnMaxMapping is keyed by DATA column index (see checkPictureMaxSize), not by the
+        // physical column, which may be shifted by an order column or earlier picture expansion.
+        var columnMaxNum = ctx.pictureHandler().getColumnMaxMapping().get(ctx.dataColIndex());
         if (columnMaxNum != null) {
             max = columnMaxNum;
             int addIndex = max;

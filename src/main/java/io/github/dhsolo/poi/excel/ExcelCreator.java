@@ -648,7 +648,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
             int length = header.length;
             if (needOrderNum) length += 1 + (orderColumnSpan - 1);
-            int max = 0;
+            int orderOffset = needOrderNum ? orderColumnSpan : 0;
+            // Cumulative count of extra physical columns created by multi-picture expansion in
+            // THIS row so far. It must accumulate across columns: overwriting it per column used
+            // to desync the physical-to-data column mapping for every column after the first
+            // one following an expanded picture column.
+            int pictureOffset = 0;
 
             for (int j = 0; j < length; j++) {
                 cell = row.getCell(j);
@@ -658,22 +663,18 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 if (needOrderNum && j < orderColumnSpan) {
                     cell.setCellValue(i + 1);
                 } else {
-                    ExcelModel excelModel;
-                    if (needOrderNum) {
-                        excelModel = columnMappingInfo.get(j - max - 1 - (orderColumnSpan - 1));
-                    } else {
-                        excelModel = columnMappingInfo.get(j - max);
-                    }
+                    int dataIdx = j - pictureOffset - orderOffset;
+                    ExcelModel excelModel = columnMappingInfo.get(dataIdx);
+                    if (excelModel == null) continue;
 
                     CellResolveContext ctx = new CellResolveContext(
-                            this, this, cell, row, sheet, excelModel, obj, j, i,
+                            this, this, cell, row, sheet, excelModel, obj, j, dataIdx, i,
                             rowNum, noneCellDefaultValue, dataCellStyle, pictureHandler);
 
                     CellValueResolver resolver = resolverFor(excelModel);
-                    if (resolver != null) {
-                        max = resolver.resolve(ctx);
-                    }
-                    j += max;
+                    int extra = resolver != null ? resolver.resolve(ctx) : 0;
+                    pictureOffset += extra;
+                    j += extra;
 
                     if (needOrderNum && j == orderColumnSpan && orderColumnSpan > 1) {
                         setMergeColumn(rowNum + i, rowNum + i, 0, orderColumnSpan - 1);
