@@ -18,7 +18,6 @@ package io.github.dhsolo.poi.excel.importor;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.lang.reflect.*;
-import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -740,12 +739,12 @@ public class ExcelImportor {
 	}
 	
 	public Object formart(Object object) {
-		NumberFormat nf = NumberFormat.getInstance();
-		String s = nf.format(object);
-		if (s.indexOf(",") >= 0) {
-		    s = s.replace(",", "");
+		// NumberFormat.getInstance() silently rounds to 3 fraction digits; go through
+		// BigDecimal so the full numeric precision of the cell survives the import.
+		if (object instanceof Number) {
+			return new java.math.BigDecimal(object.toString()).stripTrailingZeros().toPlainString();
 		}
-		return s;
+		return object.toString();
 	}
 
 	/**
