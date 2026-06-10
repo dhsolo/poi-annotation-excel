@@ -237,12 +237,14 @@ public class ExcelImportor {
 			startRow = Math.min(startRow, sheet.getLastRowNum());
 			int lastRowNum = sheet.getLastRowNum();
 			LinkedList<Map<String, Object>> rowData = new LinkedList<>();
-			List<ExcelCustomModel> excelCustomModels = new ArrayList<>();
 			for (int r = startRow; r <= lastRowNum; r++) {
 				row = sheet.getRow(r);
 				if (row == null ||  checkIsEmpty(row)) {
 					continue;
 				}
+				// Per-row snapshots for @ExcelCustomValidateMethod: rebuilt every row so the
+				// validator always sees the current row's cell/value, not the first row's.
+				List<ExcelCustomModel> excelCustomModels = new ArrayList<>();
 				short minColIx = row.getFirstCellNum();
 				short maxColIx = row.getLastCellNum();
 				if(minColIx <0 || maxColIx < 0){
@@ -341,29 +343,14 @@ public class ExcelImportor {
 						value = getPicture(r, colIx, downPath, excelModel.getImageVisitPrex());
 					}
 					if(excelModel.getExcelCustomValidate()!=null){
-						if(!excelCustomModels.isEmpty()){
-							long count = excelCustomModels.stream().filter(excelCustomModel -> excelCustomModel.getExcelModel() == excelModel).count();
-							if(count ==0){
-								ExcelCustomModel excelCustomModel = new ExcelCustomModel();
-								excelCustomModel.setExcelModel(excelModel);
-								excelCustomModel.setCurrentCellNum(colIx);
-								excelCustomModel.setCurrentRowNum(r);
-								excelCustomModel.setCell(cell);
-								excelCustomModel.setRow(row);
-								excelCustomModel.setCurrentValue(value);
-								excelCustomModels.add(excelCustomModel);
-							}
-						}else{
-							ExcelCustomModel excelCustomModel = new ExcelCustomModel();
-							excelCustomModel.setExcelModel(excelModel);
-							excelCustomModel.setCurrentCellNum(colIx);
-							excelCustomModel.setCurrentRowNum(r);
-							excelCustomModel.setCell(cell);
-							excelCustomModel.setRow(row);
-							excelCustomModel.setCurrentValue(value);
-							excelCustomModels.add(excelCustomModel);
-						}
-
+						ExcelCustomModel excelCustomModel = new ExcelCustomModel();
+						excelCustomModel.setExcelModel(excelModel);
+						excelCustomModel.setCurrentCellNum(colIx);
+						excelCustomModel.setCurrentRowNum(r);
+						excelCustomModel.setCell(cell);
+						excelCustomModel.setRow(row);
+						excelCustomModel.setCurrentValue(value);
+						excelCustomModels.add(excelCustomModel);
 					}
 
 					cellData.put(dataKey, value);
@@ -373,9 +360,9 @@ public class ExcelImportor {
 				Map<String,Object> finalOriginalCellData = new HashMap<>();
 				finalCellData.putAll(cellData);
 				finalOriginalCellData.putAll(originalCellData);
-				if(excelCustomModels.size() > 0  && errorMessage.length() == 0){
+				if(excelCustomModels.size() > 0  && errorMessage.length() == errorLengthBeforeRow){
 					for (ExcelCustomModel excelCustomModel : excelCustomModels){
-						if(errorMessage.length() > 0){
+						if(errorMessage.length() > errorLengthBeforeRow){
 							if(firstErrorBreak){
 								break;
 							}
