@@ -106,6 +106,11 @@ All notable changes to this project are documented here. The format is based on
 - Cascade dropdowns: defined-name deduplication is now case-insensitive (Excel names are);
   parent values differing only by case (`ABC` vs `abc`) no longer crash with
   "The workbook already contains this name".
+- Cascade dropdowns: option values containing characters Excel forbids in defined names
+  (spaces, hyphens, slashes, parentheses, ...) now work transparently — the registered name
+  substitutes them with `_` and the `INDIRECT` formula mirrors the substitution via
+  `SUBSTITUTE(...)`. Overlong (&gt;255) chains, cell-reference-like values, and empty values
+  still fail fast with an `ExcelException`.
 - Dropdown/formula validation columns (`realIndex`) shift by the whole order block: with
   `orderColumnSpan > 1` the validation landed on the wrong physical column (the span was also
   assigned after the index computation consuming it, so it never took effect).

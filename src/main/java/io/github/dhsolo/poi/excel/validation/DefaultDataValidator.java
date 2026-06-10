@@ -79,11 +79,45 @@ public class DefaultDataValidator implements DataValidator {
         this.columnNameModelMappingInfo = columnNameModelMappingInfo;
     }
 
+    /** Replacement character used when sanitising cascade option values into defined names. */
+    private static final char NAME_SUBSTITUTE = '_';
+
     @Override
     public void setValidationRowCount(int rowCount) {
         if (rowCount > 0) {
             this.validationRowCount = rowCount;
         }
+    }
+
+    /**
+     * Replaces every character Excel forbids in a defined name (anything other than
+     * letters, digits, {@code '.'} and {@code '_'}) with {@link #NAME_SUBSTITUTE}, recording
+     * each distinct substituted character so the dropdown formula can mirror the substitution
+     * with {@code SUBSTITUTE(...)} — the INDIRECT lookup only resolves when the concatenated
+     * cell text and the registered name stay literally identical.
+     */
+    private static String sanitizeNamePath(String raw, Set<Character> substituted) {
+        StringBuilder sb = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (Character.isLetterOrDigit(ch) || ch == '_' || ch == '.') {
+                sb.append(ch);
+            } else {
+                substituted.add(ch);
+                sb.append(NAME_SUBSTITUTE);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Wraps the formula expression in one {@code SUBSTITUTE} per sanitised character. */
+    private static String mirrorSubstitutions(String expr, Set<Character> substituted) {
+        String result = expr;
+        for (Character ch : substituted) {
+            String literal = ch == '"' ? "\"\"" : String.valueOf(ch);
+            result = "SUBSTITUTE(" + result + ",\"" + literal + "\",\"" + NAME_SUBSTITUTE + "\")";
+        }
+        return result;
     }
 
     /** Last sheet row (inclusive) covered by validations, given the current first data row. */
@@ -292,11 +326,16 @@ public class DefaultDataValidator implements DataValidator {
         }
 
         if (needCreateName) {
-            String parentValuePath = findParentValuePath(cascadeValidateModel);
-            if (parentValuePath == null || parentValuePath.isEmpty()) {
+            String rawPath = findParentValuePath(cascadeValidateModel);
+            if (rawPath == null || rawPath.isEmpty()) {
                 throw new ExcelException("Cascade options that carry a child list must have non-empty values: "
                         + "the child dropdown's Excel defined name is built from the parent option values");
             }
+            // Transparently substitute characters Excel forbids in defined names (spaces,
+            // hyphens, ...) and mirror the same substitution into the INDIRECT formulas below,
+            // so common real-world option values just work.
+            Set<Character> substitutedChars = new LinkedHashSet<>();
+            String parentValuePath = sanitizeNamePath(rawPath, substitutedChars);
             if (!Character.isLetter(parentValuePath.charAt(0))) {
                 parentValuePath = "_" + parentValuePath;
                 setParentIsAppendPrefix(cascadeValidateModel);
@@ -328,6 +367,7 @@ public class DefaultDataValidator implements DataValidator {
             if (!existINDIRECT.containsKey(realIndex)) {
                 CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
                 String cellListBoxFormal = createCellListBoxFormal(rowNum, lastValidationRow(), realIndex, realIndex, cascadeValidateModel, pddStr);
+                cellListBoxFormal = mirrorSubstitutions(cellListBoxFormal, substitutedChars);
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.computeIfAbsent(realIndex, k -> new LinkedHashMap<>());
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(
                         cascadeValidateModel.getParentValue().getOwnModel().getExcelModel().getFieldName(), k -> new LinkedHashMap<>());
@@ -336,6 +376,7 @@ public class DefaultDataValidator implements DataValidator {
                 Map<String, Map<String, CellRangeAddressList>> stringMapMap = existINDIRECT.get(realIndex);
                 CellRangeAddressList regions = new CellRangeAddressList(rowNum, lastValidationRow(), realIndex, realIndex);
                 String cellListBoxFormal = generateFormal(rowNum + 1, cascadeValidateModel, pddStr);
+                cellListBoxFormal = mirrorSubstitutions(cellListBoxFormal, substitutedChars);
                 cellListBoxFormal = String.format("IF(%s=\"%s\",%s,@@)", cellListBoxFormal, parentValuePath, cellListBoxFormal);
                 Map<String, CellRangeAddressList> stringCellRangeAddressListMap = stringMapMap.computeIfAbsent(
                         cascadeValidateModel.getParentValue().getOwnModel().getExcelModel().getFieldName(), k -> new LinkedHashMap<>());

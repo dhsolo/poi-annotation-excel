@@ -125,9 +125,12 @@ public @interface ExcelInfo {
 	int pictureInnerType() default ExcelCreator.MOVE_AND_RESIZE;
 
 	/**
-	 * Whether to use the big-data (streaming) workbook strategy ({@code SXSSFWorkbook})
-	 * for export, which reduces memory usage for large datasets.
-	 * Defaults to {@code true}.
+	/**
+	 * Whether to build the workbook with the streaming SXSSF writer. <strong>Defaults to
+	 * {@code true}</strong>: rows are flushed to temp files in a sliding window, keeping memory
+	 * flat for large exports, but earlier rows cannot be revisited and the workbook returned by
+	 * {@code getWorkBook()} is an SXSSF instance. Set {@code false} for a fully in-memory XSSF
+	 * workbook with random access (small/medium exports, post-processing scenarios).
 	 */
 	boolean isBigData() default true;
 

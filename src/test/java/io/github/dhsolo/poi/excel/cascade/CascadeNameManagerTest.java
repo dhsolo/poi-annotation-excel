@@ -35,17 +35,43 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Defined-name handling for cascade dropdowns. Excel defined names allow only
  * letters/digits/'.'/'_', are capped at 255 characters, must not look like a cell reference,
- * and are case-insensitive. Option values that violate these rules used to surface as bare POI
- * {@code IllegalArgumentException}s (or a {@code StringIndexOutOfBoundsException} for empty
- * values); case-variant duplicates crashed because the dedup set was case-sensitive.
+ * and are case-insensitive. Illegal characters in option values are transparently substituted
+ * with '_' and mirrored into the INDIRECT formulas via SUBSTITUTE; the remaining violations
+ * (overlong chains, cell-reference-like or empty values) fail fast with an
+ * {@code ExcelException} instead of a bare POI error; case-variant duplicates are
+ * disambiguated with a suffix instead of crashing.
  */
 class CascadeNameManagerTest {
 
     @Test
-    void illegalCharacterValueFailsFastWithOptionContext() {
-        assertThatThrownBy(() -> create(model("New York")))
-                .isInstanceOf(ExcelException.class)
-                .hasMessageContaining("New York");
+    void illegalCharacterValueIsTransparentlySubstituted() {
+        // spaces are illegal in defined names: the name is sanitised to New_York and the
+        // INDIRECT formula mirrors the substitution so the lookup still resolves
+        try (ExcelCreator creator = new ExcelCreator(model("New York"))) {
+            creator.createExcel();
+            Workbook wb = creator.getWorkBook();
+            assertThat(wb.getAllNames()).extracting(Name::getNameName).containsExactly("New_York");
+            assertThat(indirectFormulas(wb)).anyMatch(f -> f.contains("SUBSTITUTE") && f.contains("\" \""));
+        }
+    }
+
+    @Test
+    void hyphenValueIsTransparentlySubstituted() {
+        try (ExcelCreator creator = new ExcelCreator(model("重庆-市区"))) {
+            creator.createExcel();
+            Workbook wb = creator.getWorkBook();
+            assertThat(wb.getAllNames()).extracting(Name::getNameName).containsExactly("重庆_市区");
+            assertThat(indirectFormulas(wb)).anyMatch(f -> f.contains("SUBSTITUTE") && f.contains("\"-\""));
+        }
+    }
+
+    private static java.util.List<String> indirectFormulas(Workbook wb) {
+        java.util.List<String> formulas = new java.util.ArrayList<>();
+        wb.getSheetAt(0).getDataValidations().forEach(v -> {
+            String f = v.getValidationConstraint().getFormula1();
+            if (f != null) formulas.add(f);
+        });
+        return formulas;
     }
 
     @Test
