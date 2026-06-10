@@ -35,6 +35,9 @@ All notable changes to this project are documented here. The format is based on
   per-cell font metrics (faster; no longer throws on streaming sheets). Formula columns are
   measured by their cached computed result rather than the formula expression text, so a long
   formula (e.g. `SUM(A1:A100)`) no longer over-widens its column.
+- `ExcelCreator.close()` now documents (and relies on) the close-after-export contract: in
+  big-data mode it disposes the streaming workbook's temp files, so exporting after `close()`
+  is not supported.
 
 ### Fixed
 - Large integers (`Long`/`BigInteger` beyond 2^53) and high-precision `BigDecimal` are written as
@@ -136,11 +139,6 @@ All notable changes to this project are documented here. The format is based on
 - Import value translation no longer fails on comparator-based translate maps (e.g.
   `TreeMap`) combined with non-string cell values; the typed lookup falls back to the
   stringified scan.
-
-### Changed
-- `ExcelCreator.close()` now documents (and relies on) the close-after-export contract: in
-  big-data mode it disposes the streaming workbook's temp files, so exporting after `close()`
-  is not supported.
 
 ### Deprecated
 - `ExcelImportor(Object)`: the constructor reads nothing and yields an unusable instance; use
