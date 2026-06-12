@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `ExcelTemplateFiller` picture placeholders: `${@image:key}` anchors an image registered via
+  the new `fillPicture(key, byte[]/File/InputStream)` over the placeholder cell, and
+  `${list.@image:key}` inserts one image per expanded list row from the row map's value.
+  The image format (PNG/JPEG/GIF/BMP) is sniffed from the bytes and embedded as-is; missing
+  keys or unrecognizable bytes just clear the placeholder with a warning. Anchors cooperate
+  with the existing list-expansion shift. `PictureFormat` now exposes `poiPictureType()`.
+
 ### Security
 - Apache POI upgraded 5.2.5 → 5.5.1 (covers CVE-2025-31672 in OOXML parsing — the import path
   parses user-supplied xlsx). Picture pre-registration was ported to POI ≥5.4's unmodifiable

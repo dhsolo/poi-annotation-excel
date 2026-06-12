@@ -15,7 +15,9 @@
  */
 package io.github.dhsolo.poi.excel.picture;
 
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFRelation;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 /**
  * Describes an embeddable picture format and centralises every per-format detail the
@@ -36,24 +38,26 @@ import org.apache.poi.xssf.usermodel.XSSFRelation;
 public enum PictureFormat {
 
     /** JPEG / JPG — no transparency; alpha is flattened onto white before encoding. */
-    JPEG("jpeg", "jpg", XSSFRelation.IMAGE_JPEG, false),
+    JPEG("jpeg", "jpg", XSSFRelation.IMAGE_JPEG, Workbook.PICTURE_TYPE_JPEG, false),
     /** PNG — lossless, preserves transparency. */
-    PNG("png", "png", XSSFRelation.IMAGE_PNG, true),
+    PNG("png", "png", XSSFRelation.IMAGE_PNG, Workbook.PICTURE_TYPE_PNG, true),
     /** GIF — preserves transparency (single frame when re-encoded). */
-    GIF("gif", "gif", XSSFRelation.IMAGE_GIF, true),
+    GIF("gif", "gif", XSSFRelation.IMAGE_GIF, XSSFWorkbook.PICTURE_TYPE_GIF, true),
     /** BMP / DIB — no transparency. */
-    BMP("bmp", "bmp", XSSFRelation.IMAGE_BMP, false);
+    BMP("bmp", "bmp", XSSFRelation.IMAGE_BMP, XSSFWorkbook.PICTURE_TYPE_BMP, false);
 
     private final String fileExtension;
     private final String imageIoName;
     private final XSSFRelation relation;
+    private final int poiPictureType;
     private final boolean supportsAlpha;
 
     PictureFormat(String fileExtension, String imageIoName, XSSFRelation relation,
-                  boolean supportsAlpha) {
+                  int poiPictureType, boolean supportsAlpha) {
         this.fileExtension = fileExtension;
         this.imageIoName = imageIoName;
         this.relation = relation;
+        this.poiPictureType = poiPictureType;
         this.supportsAlpha = supportsAlpha;
     }
 
@@ -70,6 +74,11 @@ public enum PictureFormat {
     /** @return the POI relationship that declares this format's content type. */
     public XSSFRelation relation() {
         return relation;
+    }
+
+    /** @return the {@code Workbook.PICTURE_TYPE_*} constant for {@link Workbook#addPicture}. */
+    public int poiPictureType() {
+        return poiPictureType;
     }
 
     /** @return {@code true} when this format carries an alpha (transparency) channel. */

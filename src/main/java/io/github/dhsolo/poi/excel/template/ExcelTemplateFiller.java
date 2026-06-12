@@ -20,9 +20,12 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.dhsolo.common.Reflect;
+import io.github.dhsolo.poi.excel.picture.PictureFormat;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,6 +38,13 @@ import java.util.regex.Pattern;
  *   <li><b>List fill</b> — expands a row tagged with {@code ${list.fieldName}} for each item in a list,
  *       inserting new rows and shifting the rest down.</li>
  * </ul>
+ *
+ * <p>Picture placeholders embed images instead of text. {@code ${@image:logo}} marks the cell
+ * where a picture registered via {@link #fillPicture(String, byte[])} is anchored;
+ * {@code ${list.@image:photo}} inside a list row takes the image from each row map's
+ * {@code photo} value ({@code byte[]}, {@link File} or {@link InputStream}). The placeholder
+ * text is cleared and the picture is anchored over the cell (moving and resizing with it).
+ * The image format (PNG/JPEG/GIF/BMP) is detected from the bytes and preserved.
  *
  * <p>Example template layout:
  * <pre>
@@ -58,10 +68,12 @@ public class ExcelTemplateFiller {
 
     private static final Logger log = LoggerFactory.getLogger(ExcelTemplateFiller.class);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
+    private static final Pattern IMAGE_PLACEHOLDER = Pattern.compile("\\$\\{@image:([^}]+)}");
 
     private final Workbook workbook;
     private final Map<String, Object> context = new LinkedHashMap<>();
     private final Map<String, List<Map<String, Object>>> listContext = new LinkedHashMap<>();
+    private final Map<String, byte[]> pictureContext = new LinkedHashMap<>();
 
     private ExcelTemplateFiller(Workbook workbook) {
         this.workbook = workbook;
@@ -166,6 +178,33 @@ public class ExcelTemplateFiller {
     }
 
     /**
+     * Registers an image for a {@code ${@image:key}} placeholder. The placeholder cell's text
+     * is cleared and the picture is anchored over the cell. The format (PNG/JPEG/GIF/BMP) is
+     * detected from the bytes and preserved; unrecognized bytes are skipped with a warning.
+     *
+     * @param key   placeholder name, e.g. {@code "logo"} matches {@code ${@image:logo}}
+     * @param image raw image bytes; {@code null} or empty leaves the placeholder to be cleared
+     * @return this filler for method chaining
+     */
+    public ExcelTemplateFiller fillPicture(String key, byte[] image) {
+        if (image != null && image.length > 0) pictureContext.put(key, image);
+        return this;
+    }
+
+    /** Variant of {@link #fillPicture(String, byte[])} reading the image from a file. */
+    public ExcelTemplateFiller fillPicture(String key, File image) throws IOException {
+        return fillPicture(key, image == null ? null : Files.readAllBytes(image.toPath()));
+    }
+
+    /**
+     * Variant of {@link #fillPicture(String, byte[])} reading the image from a stream.
+     * The stream is fully read but not closed.
+     */
+    public ExcelTemplateFiller fillPicture(String key, InputStream image) throws IOException {
+        return fillPicture(key, image == null ? null : image.readAllBytes());
+    }
+
+    /**
      * Processes all sheets, performs substitution, and writes the result to {@code out}.
      *
      * @param out target output stream (not closed by this method)
@@ -191,9 +230,11 @@ public class ExcelTemplateFiller {
         for (String listKey : listContext.keySet()) {
             expandListRows(sheet, listKey, listContext.get(listKey));
         }
-        // Second pass: fill scalar placeholders
+        // Second pass: fill scalar placeholders (pictures first, so the leftover text
+        // placeholders in the same cell are still substituted afterwards)
         for (Row row : sheet) {
             for (Cell cell : row) {
+                fillImagePlaceholders(cell, IMAGE_PLACEHOLDER, pictureContext::get);
                 fillCell(cell, context);
             }
         }
@@ -247,13 +288,17 @@ public class ExcelTemplateFiller {
             shiftPictureAnchors(sheet, templateRowIndex, rows.size() - 1);
         }
 
+        Pattern rowImagePattern = Pattern.compile("\\$\\{" + Pattern.quote(listKey) + "\\.@image:([^}]+)}");
+
         for (int i = 0; i < rows.size(); i++) {
             Row targetRow = (i == 0) ? templateRow : createRowFromSnapshot(sheet, templateRow, templateValues, templateRowIndex + i);
+            Map<String, Object> rowData = rows.get(i);
             Map<String, Object> resolvedContext = new LinkedHashMap<>();
-            for (Map.Entry<String, Object> entry : rows.get(i).entrySet()) {
+            for (Map.Entry<String, Object> entry : rowData.entrySet()) {
                 resolvedContext.put(listKey + "." + entry.getKey(), entry.getValue());
             }
             for (Cell cell : targetRow) {
+                fillImagePlaceholders(cell, rowImagePattern, rowData::get);
                 fillCell(cell, resolvedContext);
             }
         }
@@ -294,6 +339,76 @@ public class ExcelTemplateFiller {
             col++;
         }
         return dest;
+    }
+
+    /**
+     * Replaces every image placeholder the given pattern finds in the cell with an empty string
+     * and anchors the resolved picture over the cell. Group 1 of the pattern is the lookup key;
+     * the resolver maps it to {@code byte[]}, {@link File}, {@link InputStream} or {@code null}
+     * (unresolvable values just clear the placeholder).
+     */
+    private void fillImagePlaceholders(Cell cell, Pattern pattern, Function<String, Object> resolver) {
+        if (cell.getCellType() != CellType.STRING) return;
+        String raw = cell.getStringCellValue();
+        if (!raw.contains("${")) return;
+
+        Matcher m = pattern.matcher(raw);
+        StringBuffer sb = new StringBuffer();
+        boolean found = false;
+        while (m.find()) {
+            found = true;
+            String name = m.group(1);
+            byte[] data = toImageBytes(resolver.apply(name), name);
+            if (data != null) {
+                insertPicture(cell, data, name);
+            }
+            m.appendReplacement(sb, "");
+        }
+        if (found) {
+            m.appendTail(sb);
+            cell.setCellValue(sb.toString());
+        }
+    }
+
+    /** Coerces a picture placeholder value to raw bytes; unusable values resolve to {@code null}. */
+    private byte[] toImageBytes(Object value, String name) {
+        try {
+            if (value == null) return null;
+            if (value instanceof byte[] bytes) return bytes.length > 0 ? bytes : null;
+            if (value instanceof File file) return Files.readAllBytes(file.toPath());
+            if (value instanceof InputStream in) return in.readAllBytes();
+        } catch (IOException e) {
+            log.warn("Image placeholder '{}' skipped: cannot read image source", name, e);
+            return null;
+        }
+        log.warn("Image placeholder '{}' skipped: unsupported value type {}", name, value.getClass().getName());
+        return null;
+    }
+
+    /**
+     * Anchors a picture over the placeholder cell (two-cell anchor spanning exactly that cell,
+     * moving and resizing with it). The format is sniffed from the bytes so PNG transparency
+     * and the original encoding survive; unrecognized bytes are skipped with a warning.
+     */
+    private void insertPicture(Cell cell, byte[] data, String name) {
+        PictureFormat format = PictureFormat.sniff(data);
+        if (format == null) {
+            log.warn("Image placeholder '{}' skipped: unrecognized image format", name);
+            return;
+        }
+        int pictureIndex = workbook.addPicture(data, format.poiPictureType());
+        Sheet sheet = cell.getSheet();
+        Drawing<?> drawing = sheet.getDrawingPatriarch();
+        if (drawing == null) {
+            drawing = sheet.createDrawingPatriarch();
+        }
+        ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
+        anchor.setCol1(cell.getColumnIndex());
+        anchor.setRow1(cell.getRowIndex());
+        anchor.setCol2(cell.getColumnIndex() + 1);
+        anchor.setRow2(cell.getRowIndex() + 1);
+        anchor.setAnchorType(ClientAnchor.AnchorType.MOVE_AND_RESIZE);
+        drawing.createPicture(anchor, pictureIndex);
     }
 
     /** Replaces all {@code ${key}} placeholders in a cell's string value with context values. */

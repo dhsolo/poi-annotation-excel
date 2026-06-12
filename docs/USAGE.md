@@ -643,7 +643,7 @@ private String total;
 
 ## 12. 模板填充 ExcelTemplateFiller
 
-> **图片说明**：模板中已有的静态图片会原样保留；列表行扩展时，列表区**下方**的图片锚点会随插入的行数一起下移（不会压到数据上）。暂不支持用占位符动态插入图片（计划中，见 issue #5）。
+> **图片说明**：模板中已有的静态图片会原样保留；列表行扩展时，列表区**下方**的图片锚点会随插入的行数一起下移（不会压到数据上）。
 >
 > **列表区域说明**：每个 listKey 只识别**第一处**含 `${listKey.*}` 占位符的模板行；同一 key 在多处出现时，后续占位行不会展开。需要多个列表区域时请使用不同的 listKey。
 
@@ -657,10 +657,19 @@ ExcelTemplateFiller.of(templateInputStream)          // of(InputStream) / of(byt
     .fillBean(reportHeader)                          // 用 Bean 的字段填充同名占位符
     .fillList("list", rowsAsMaps)                    // 列表区：${list.no} ${list.name}
     .fillListBeans("list", rowBeans)                 // 列表区（POJO）
+    .fillPicture("logo", logoBytes)                  // 图片占位：${@image:logo}（byte[]/File/InputStream）
     .writeTo(response.getOutputStream());            // 或 .toBytes()
 ```
 
 模板里：标量占位 `${reportDate}`；列表占位 `${list.no}`、`${list.name}`（同一行作为模板行，按列表展开）。
+
+### 图片占位符
+
+- **标量图片** `${@image:logo}`：配合 `fillPicture("logo", 图片)` 注册，支持 `byte[]` / `File` / `InputStream`（流会被读完但不关闭）。填充时清空该单元格文本，图片以**覆盖该单元格的双锚点**插入（随行列移动缩放）；占位格在列表区下方时随扩行一起下移。
+- **列表行图片** `${list.@image:photo}`：图片值直接放在行数据 Map 的 `photo` 键里（同样支持 `byte[]` / `File` / `InputStream`；`fillListBeans` 的 `byte[]` 字段天然可用），每行各插一张。
+- 图片**格式按字节嗅探**（PNG/JPEG/GIF/BMP）原样嵌入，不转码（PNG 透明度保留）。未注册的 key、`null` 值或无法识别的字节：仅清空占位文本、跳过插图并打 WARN 日志，不中断填充。
+- 同一单元格可混排图片与文本占位：`${@image:logo}${title}` 会插图并保留 `title` 的文本替换。
+- 图片大小由锚点决定（铺满占位单元格），需要更大的展示区域时请在模板里调大该行高/列宽。
 
 ---
 
