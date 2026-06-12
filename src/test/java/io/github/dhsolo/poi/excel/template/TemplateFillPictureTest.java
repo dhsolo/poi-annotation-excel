@@ -303,6 +303,76 @@ class TemplateFillPictureTest {
         }
     }
 
+    @Test
+    void multipleUrlsSplitBySeparatorFillAdjacentColumns() throws Exception {
+        byte[] template = template(sheet -> sheet.createRow(0).createCell(1).setCellValue("${@image:gallery}"));
+        HttpServer server = serverWith(Map.of("/a.png", image("png"), "/b.jpg", image("jpg")));
+        try {
+            String base = "http://127.0.0.1:" + server.getAddress().getPort();
+
+            byte[] filled = ExcelTemplateFiller.of(template)
+                    .fillPicture("gallery", base + "/a.png," + base + "/b.jpg")
+                    .toBytes();
+
+            try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+                Sheet sheet = wb.getSheetAt(0);
+                assertThat(wb.getAllPictures()).hasSize(2);
+                List<Integer> anchorCols = pictures(sheet).stream()
+                        .map(p -> (int) p.getClientAnchor().getCol1()).toList();
+                assertThat(anchorCols).containsExactlyInAnyOrder(1, 2);
+                assertThat(sheet.getRow(0).getCell(1).getStringCellValue()).isEmpty();
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void customSeparatorWorksAndFailedPartsDoNotConsumeAColumn() throws Exception {
+        byte[] template = template(sheet -> {
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${list.name}");
+            row.createCell(1).setCellValue("${list.@image:photos}");
+        });
+        HttpServer server = serverWith(Map.of("/a.png", image("png")));
+        int deadPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            deadPort = socket.getLocalPort();
+        }
+        try {
+            String dead = "http://127.0.0.1:" + deadPort + "/gone.png";
+            String good = "http://127.0.0.1:" + server.getAddress().getPort() + "/a.png";
+
+            byte[] filled = ExcelTemplateFiller.of(template)
+                    .imagesSeparator(";")
+                    .fillList("list", List.of(Map.of("name", "a", "photos", dead + ";" + good)))
+                    .toBytes();
+
+            try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+                Sheet sheet = wb.getSheetAt(0);
+                assertThat(wb.getAllPictures()).hasSize(1);
+                List<XSSFPicture> pics = pictures(sheet);
+                assertThat(pics).hasSize(1);
+                // the failed first URL did not consume the slot: the good image sits on the placeholder column
+                assertThat((int) pics.get(0).getClientAnchor().getCol1()).isEqualTo(1);
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static HttpServer serverWith(Map<String, byte[]> routes) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        routes.forEach((path, body) -> server.createContext(path, exchange -> {
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        }));
+        server.start();
+        return server;
+    }
+
     private static HttpServer pngServer(AtomicInteger hits) throws IOException {
         byte[] body = image("png");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

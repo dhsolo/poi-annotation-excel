@@ -82,6 +82,7 @@ public class ExcelTemplateFiller {
     /** Bytes instance → media part index, so one image anchored many times is stored once. */
     private final Map<byte[], Integer> pictureIndexCache = new IdentityHashMap<>();
     private int imageReadTimeOut = DEFAULT_IMAGE_READ_TIME_OUT;
+    private Pattern imagesSeparatorPattern = Pattern.compile(",");
 
     private ExcelTemplateFiller(Workbook workbook) {
         this.workbook = workbook;
@@ -221,8 +222,12 @@ public class ExcelTemplateFiller {
      * clears the placeholder with a warning instead of aborting the fill; identical
      * URLs are downloaded once and stored as a single media part.
      *
+     * <p>The value may carry <b>multiple</b> URLs separated by {@link #imagesSeparator(String)}
+     * (default {@code ","}, same as picture exports): images are anchored over the
+     * placeholder cell and the cells to its right, one column per image.
+     *
      * @param key      placeholder name, e.g. {@code "logo"} matches {@code ${@image:logo}}
-     * @param imageUrl image URL or local file path; blank values leave the placeholder to be cleared
+     * @param imageUrl image URL(s) or local file path(s); blank values leave the placeholder to be cleared
      * @return this filler for method chaining
      */
     public ExcelTemplateFiller fillPicture(String key, String imageUrl) {
@@ -236,6 +241,16 @@ public class ExcelTemplateFiller {
      */
     public ExcelTemplateFiller imageReadTimeOut(int millis) {
         this.imageReadTimeOut = millis;
+        return this;
+    }
+
+    /**
+     * Sets the separator splitting a {@code String} picture value into multiple URLs/paths.
+     * Compiled as a regular expression (escape regex metacharacters, e.g. {@code "\\|"}),
+     * exactly like the export-side {@code imagesSeparator}. Defaults to {@code ","}.
+     */
+    public ExcelTemplateFiller imagesSeparator(String separator) {
+        this.imagesSeparatorPattern = Pattern.compile(separator != null && !separator.isEmpty() ? separator : ",");
         return this;
     }
 
@@ -393,9 +408,11 @@ public class ExcelTemplateFiller {
         while (m.find()) {
             found = true;
             String name = m.group(1);
-            byte[] data = toImageBytes(resolver.apply(name), name);
-            if (data != null) {
-                insertPicture(cell, data, name);
+            int columnOffset = 0;
+            for (byte[] data : toImageList(resolver.apply(name), name)) {
+                if (insertPicture(cell, data, name, columnOffset)) {
+                    columnOffset++;
+                }
             }
             m.appendReplacement(sb, "");
         }
@@ -405,6 +422,25 @@ public class ExcelTemplateFiller {
         }
     }
 
+    /**
+     * Resolves a picture placeholder value to the list of images it denotes. A {@code String}
+     * is split on {@link #imagesSeparator(String)} and each part downloaded/read; other
+     * supported types yield a single image. Unresolvable parts are skipped (logged in the
+     * respective resolution step), so the list may be empty.
+     */
+    private List<byte[]> toImageList(Object value, String name) {
+        if (value instanceof String urls) {
+            List<byte[]> images = new ArrayList<>();
+            for (String url : imagesSeparatorPattern.split(urls)) {
+                byte[] data = downloadImage(url.trim(), name);
+                if (data != null) images.add(data);
+            }
+            return images;
+        }
+        byte[] single = toImageBytes(value, name);
+        return single == null ? List.of() : List.of(single);
+    }
+
     /** Coerces a picture placeholder value to raw bytes; unusable values resolve to {@code null}. */
     private byte[] toImageBytes(Object value, String name) {
         try {
@@ -412,7 +448,6 @@ public class ExcelTemplateFiller {
             if (value instanceof byte[] bytes) return bytes.length > 0 ? bytes : null;
             if (value instanceof File file) return Files.readAllBytes(file.toPath());
             if (value instanceof InputStream in) return in.readAllBytes();
-            if (value instanceof String url) return downloadImage(url, name);
         } catch (IOException e) {
             log.warn("Image placeholder '{}' skipped: cannot read image source", name, e);
             return null;
@@ -440,15 +475,19 @@ public class ExcelTemplateFiller {
     }
 
     /**
-     * Anchors a picture over the placeholder cell (two-cell anchor spanning exactly that cell,
-     * moving and resizing with it). The format is sniffed from the bytes so PNG transparency
-     * and the original encoding survive; unrecognized bytes are skipped with a warning.
+     * Anchors a picture over the placeholder cell shifted {@code columnOffset} columns to the
+     * right (two-cell anchor spanning exactly one cell, moving and resizing with it) — offsets
+     * beyond 0 host the extra images of a multi-URL value, mirroring the export behaviour.
+     * The format is sniffed from the bytes so PNG transparency and the original encoding
+     * survive; unrecognized bytes are skipped with a warning.
+     *
+     * @return {@code true} when a picture was anchored (the column slot is consumed)
      */
-    private void insertPicture(Cell cell, byte[] data, String name) {
+    private boolean insertPicture(Cell cell, byte[] data, String name, int columnOffset) {
         PictureFormat format = PictureFormat.sniff(data);
         if (format == null) {
             log.warn("Image placeholder '{}' skipped: unrecognized image format", name);
-            return;
+            return false;
         }
         Integer pictureIndex = pictureIndexCache.get(data);
         if (pictureIndex == null) {
@@ -460,13 +499,15 @@ public class ExcelTemplateFiller {
         if (drawing == null) {
             drawing = sheet.createDrawingPatriarch();
         }
+        int column = cell.getColumnIndex() + columnOffset;
         ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
-        anchor.setCol1(cell.getColumnIndex());
+        anchor.setCol1(column);
         anchor.setRow1(cell.getRowIndex());
-        anchor.setCol2(cell.getColumnIndex() + 1);
+        anchor.setCol2(column + 1);
         anchor.setRow2(cell.getRowIndex() + 1);
         anchor.setAnchorType(ClientAnchor.AnchorType.MOVE_AND_RESIZE);
         drawing.createPicture(anchor, pictureIndex);
+        return true;
     }
 
     /** Replaces all {@code ${key}} placeholders in a cell's string value with context values. */
