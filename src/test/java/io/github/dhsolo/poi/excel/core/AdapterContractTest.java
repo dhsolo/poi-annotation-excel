@@ -17,6 +17,7 @@ package io.github.dhsolo.poi.excel.core;
 
 import io.github.dhsolo.poi.excel.ExcelModel;
 import io.github.dhsolo.poi.excel.ExcelUtil;
+import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,19 @@ class AdapterContractTest {
         assertThat(sheet.getRow(2)).isNull();
         assertThat(sheet.getRow(-1)).isNull();
         assertThat(sheet.getPhysicalNumberOfRows()).isEqualTo(2);
+    }
+
+    /** {@code getCell(int, MissingCellPolicy)} must honour the policy instead of ignoring it. */
+    @Test
+    void csvGetCellHonoursMissingCellPolicy() throws Exception {
+        CSVSheet sheet = csvSheet("a,,c\n");
+        Row row = sheet.getRow(0);
+        Cell created = row.getCell(5, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        assertThat(created).isNotNull();
+        assertThat(created.getStringCellValue()).isEmpty();
+        assertThat(row.getCell(1, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)).isNull();   // empty token
+        assertThat(row.getCell(0, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)).isNotNull();
+        assertThat(row.getCell(5, Row.MissingCellPolicy.RETURN_NULL_AND_BLANK)).isNull();
     }
 
     @Test

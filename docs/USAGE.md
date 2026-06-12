@@ -530,7 +530,7 @@ ExcelUtil.importExcel(in, DeviceImportModel.class, new ExcelReadListener() {
 > **导入目标类要求**：无参构造器 + 各列字段的 **public setter**（框架按字段名 `setXxx(类型)` 注入；缺 setter 的列会被静默跳过、保持默认值）。
 
 ### 支持的导入类型
-`String`、全部基本类型及其包装类、`BigDecimal`、`BigInteger`、`java.util.Date`、`java.sql.Date`、`java.sql.Timestamp`、`java.time.LocalDate`、`java.time.LocalDateTime`。数值容忍千分位（`"1,234,567"`）；日期容忍九种常见格式（ISO-8601、`yyyy-MM-dd HH:mm:ss`、`yyyy/MM/dd`、`yyyyMMdd` 等）。
+`String`、全部基本类型及其包装类、`BigDecimal`、`BigInteger`、`java.util.Date`、`java.sql.Date`、`java.sql.Timestamp`、`java.time.LocalDate`、`java.time.LocalDateTime`。数值容忍千分位（`"1,234,567"`）；小数文本转整数类型按**截尾**处理（`"123.99"` → 123，科学计数法精确展开）。日期容忍十二种常见格式（ISO-8601、`yyyy-MM-dd HH:mm:ss[.SSS]`、`yyyy-MM-dd HH:mm`、`yyyy/MM/dd`、`yyyyMMdd` 等），解析为**严格模式**：模式必须吃完整个字符串（日期模式不会吞掉尾部时间）、字段值必须在合法范围（`2024-99-99` 拒绝而非回绕）；全部模式都不匹配时返回 null 并打 WARN。
 
 ---
 
@@ -667,8 +667,10 @@ ExcelTemplateFiller.of(templateInputStream)          // of(InputStream) / of(byt
 
 - **标量图片** `${@image:logo}`：配合 `fillPicture("logo", 图片)` 注册，支持 `byte[]` / `File` / `InputStream`（流会被读完但不关闭）/ **`String` URL 或本地路径**。填充时清空该单元格文本，图片以**覆盖该单元格的双锚点**插入（随行列移动缩放）；占位格在列表区下方时随扩行一起下移。
 - **列表行图片** `${list.@image:photo}`：图片值直接放在行数据 Map 的 `photo` 键里（同样支持 `byte[]` / `File` / `InputStream` / `String` URL；`fillListBeans` 的 `byte[]`/`String` 字段天然可用），每行各插一张。
-- **URL 下载**：`String` 值按 `http`/`https` URL 下载（非 `http` 开头按本地路径读），走与图片导出**同一套守卫**——协议白名单、`ImageDownloadPolicy`（SSRF，见第 14 节）、读超时（`imageReadTimeOut(毫秒)` 链式设置，默认 2000ms）、单图 64 MB 上限。**同一 URL 只下载一次**（失败也只试一次），同一图片多处锚定共享**一个媒体部件**（不撑大文件）。下载失败仅清空占位 + WARN，不中断填充。
-- **多图分隔符**：`String` 值可含**多个** URL/路径，按 `imagesSeparator(分隔符)` 切分（默认 `","`，按正则编译——`|` 等元字符需转义为 `"\\|"`，与导出侧 `imagesSeparator` 同约定）。多张图从占位格起**逐列向右**各占一格锚定；下载失败的那张不占列位（后面的图左移补齐，同导出行为）。
+- **URL 下载**：`String` 值按 `http`/`https` URL 下载（非 `http` 开头按本地路径读），走与图片导出**同一套守卫**——协议白名单、`ImageDownloadPolicy`（SSRF，见第 14 节）、读超时（`imageReadTimeOut(毫秒)` 链式设置，默认 2000ms）、单图 64 MB 上限。模板中所有不同的图片 URL 在填充前**并行预下载**（≤8 线程）；**同一 URL 只下载一次**（失败也只试一次）、同一 `File` 只读一次磁盘，**内容相同的图片**（无论来源是 byte[]/File/URL）多处锚定共享**一个媒体部件**（不撑大文件）。下载失败仅清空占位 + WARN，不中断填充。
+- **多图分隔符**：`String` 值可含**多个** URL/路径，按 `imagesSeparator(分隔符)` 切分（默认 `","`，按正则编译——`|` 等元字符需转义为 `"\\|"`，与导出侧 `imagesSeparator` 同约定）。多张图从占位格起**逐列向右**各占一格锚定；下载失败的那张不占列位（后面的图左移补齐，同导出行为）；同一单元格里多个图片占位符也按此规则**连续向右**排，不会重叠。
+- **列表行内的标量图片**：列表模板行里也可以放 `${@image:key}`（非 `listKey.` 前缀）——它会随行复制，扩出的**每一行**都插入该图。无法解析的图片占位（如 listKey 未注册）会被清空并打 WARN，不会把 `${...}` 原文留在表里。
+- **非 XLSX 模板**：`of(Workbook)` 传入 HSSF（.xls）时 GIF/BMP 不被 POI 支持，该图按"跳过 + WARN"处理，不会中断填充。
 - 图片**格式按字节嗅探**（PNG/JPEG/GIF/BMP）原样嵌入，不转码（PNG 透明度保留）。未注册的 key、`null` 值或无法识别的字节：仅清空占位文本、跳过插图并打 WARN 日志，不中断填充。
 - 同一单元格可混排图片与文本占位：`${@image:logo}${title}` 会插图并保留 `title` 的文本替换。
 - 图片大小由锚点决定（铺满占位单元格），需要更大的展示区域时请在模板里调大该行高/列宽。

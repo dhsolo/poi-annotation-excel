@@ -43,11 +43,8 @@ public class BusinessXSSFWorkbook extends XSSFWorkbook {
 
     /**
      * Registers a JPEG image relationship at the given index and adds the corresponding
-     * {@link XSSFPictureData} to the workbook's picture list.
-     *
-     * <p>When {@code index} is {@code 1} the picture list is only initialised (via
-     * {@link #getAllPictures()}); for any other index the new picture part is appended to
-     * the list.</p>
+     * {@link XSSFPictureData} to the workbook's picture list (skipping parts the lazy
+     * {@link #getAllPictures()} scan already registered).
      *
      * @param index the one-based relationship index used to create or locate the JPEG
      *              image part within the workbook package
@@ -74,12 +71,38 @@ public class BusinessXSSFWorkbook extends XSSFWorkbook {
         // Anchors created during data population resolve pictures by index into the workbook's
         // picture list, so the part created above must be registered there. The list returned
         // by getAllPictures() is unmodifiable since POI 5.4, so append via the internal field;
-        // getAllPictures() is called first to trigger the lazy scan (which already picks up
-        // this part when the list was never initialised — hence the contains check).
+        // getAllPictures() is called first to trigger the lazy scan, which — when the list was
+        // never initialised — already wraps this part in a NEW XSSFPictureData instance.
+        // XSSFPictureData has no equals override, so dedup must compare package part names,
+        // not wrapper identity: an identity contains() would re-add the part and shift every
+        // later by-index anchor to the wrong image.
         getAllPictures();
         List<XSSFPictureData> internal = internalPictures();
-        if (!internal.contains(img)) {
+        var partName = img.getPackagePart().getPartName();
+        boolean registered = false;
+        for (XSSFPictureData existing : internal) {
+            if (partName.equals(existing.getPackagePart().getPartName())) {
+                registered = true;
+                break;
+            }
+        }
+        if (!registered) {
             internal.add(img);
+        }
+    }
+
+    /**
+     * The {@code XSSFWorkbook.pictures} field, resolved once at class load so a POI upgrade
+     * that renames it fails fast (and loudly) instead of mid-export.
+     */
+    private static final Field PICTURES_FIELD;
+    static {
+        try {
+            PICTURES_FIELD = XSSFWorkbook.class.getDeclaredField("pictures");
+            PICTURES_FIELD.setAccessible(true);
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(new IllegalStateException(
+                    "Cannot access XSSFWorkbook.pictures; POI internals changed — picture pre-registration needs porting", e));
         }
     }
 
@@ -87,10 +110,8 @@ public class BusinessXSSFWorkbook extends XSSFWorkbook {
     @SuppressWarnings("unchecked")
     private List<XSSFPictureData> internalPictures() {
         try {
-            Field f = XSSFWorkbook.class.getDeclaredField("pictures");
-            f.setAccessible(true);
-            return (List<XSSFPictureData>) f.get(this);
-        } catch (ReflectiveOperationException e) {
+            return (List<XSSFPictureData>) PICTURES_FIELD.get(this);
+        } catch (IllegalAccessException e) {
             throw new IllegalStateException(
                     "Cannot access XSSFWorkbook.pictures; POI internals changed — picture pre-registration needs porting", e);
         }

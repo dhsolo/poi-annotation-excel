@@ -115,7 +115,6 @@ public class CSVSheet implements Sheet {
      * Returns the row at the given zero-based index.
      *
      * @param rownum the zero-based row index
-     * @return the {@link CSVRow} at {@code rownum}
      * @return the row at {@code rownum}, or {@code null} when out of range (POI contract)
      */
     @Override

@@ -26,6 +26,9 @@ import io.github.dhsolo.poi.excel.picture.PictureFormat;
 import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -71,16 +74,22 @@ public class ExcelTemplateFiller {
     private static final Logger log = LoggerFactory.getLogger(ExcelTemplateFiller.class);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
     private static final Pattern IMAGE_PLACEHOLDER = Pattern.compile("\\$\\{@image:([^}]+)}");
+    /** Any image placeholder, prefixed or not — used for URL prefetch and leftover cleanup. */
+    private static final Pattern ANY_IMAGE_PLACEHOLDER = Pattern.compile("\\$\\{(?:([^}]+)\\.)?@image:([^}]+)}");
     private static final int DEFAULT_IMAGE_READ_TIME_OUT = 2000;
+    private static final int MAX_PARALLEL_DOWNLOADS = 8;
 
     private final Workbook workbook;
     private final Map<String, Object> context = new LinkedHashMap<>();
     private final Map<String, List<Map<String, Object>>> listContext = new LinkedHashMap<>();
     private final Map<String, Object> pictureContext = new LinkedHashMap<>();
-    /** URL/path → downloaded bytes; a {@code null} value caches a failure so it is logged once. */
+    /**
+     * URL/path → fetched bytes (remote downloads and {@link File} reads); a {@code null}
+     * value caches a failure so a dead source is attempted and logged only once.
+     */
     private final Map<String, byte[]> downloadCache = new HashMap<>();
-    /** Bytes instance → media part index, so one image anchored many times is stored once. */
-    private final Map<byte[], Integer> pictureIndexCache = new IdentityHashMap<>();
+    /** Image content → media part index, so one image anchored many times is stored once. */
+    private final Map<PictureBytes, Integer> pictureIndexCache = new HashMap<>();
     private int imageReadTimeOut = DEFAULT_IMAGE_READ_TIME_OUT;
     private Pattern imagesSeparatorPattern = Pattern.compile(",");
 
@@ -260,6 +269,7 @@ public class ExcelTemplateFiller {
      * @param out target output stream (not closed by this method)
      */
     public void writeTo(OutputStream out) throws IOException {
+        prefetchImages();
         for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
             processSheet(workbook.getSheetAt(i));
         }
@@ -281,11 +291,13 @@ public class ExcelTemplateFiller {
             expandListRows(sheet, listKey, listContext.get(listKey));
         }
         // Second pass: fill scalar placeholders (pictures first, so the leftover text
-        // placeholders in the same cell are still substituted afterwards)
+        // placeholders in the same cell are still substituted afterwards), then clear
+        // image placeholders nothing could resolve
         for (Row row : sheet) {
             for (Cell cell : row) {
                 fillImagePlaceholders(cell, IMAGE_PLACEHOLDER, pictureContext::get);
                 fillCell(cell, context);
+                clearLeftoverImagePlaceholders(cell);
             }
         }
     }
@@ -400,15 +412,17 @@ public class ExcelTemplateFiller {
     private void fillImagePlaceholders(Cell cell, Pattern pattern, Function<String, Object> resolver) {
         if (cell.getCellType() != CellType.STRING) return;
         String raw = cell.getStringCellValue();
-        if (!raw.contains("${")) return;
+        if (!raw.contains("@image:")) return;
 
         Matcher m = pattern.matcher(raw);
         StringBuffer sb = new StringBuffer();
         boolean found = false;
+        // shared across all placeholders in the cell, so a second placeholder's images
+        // continue to the right instead of overlapping the first placeholder's
+        int columnOffset = 0;
         while (m.find()) {
             found = true;
             String name = m.group(1);
-            int columnOffset = 0;
             for (byte[] data : toImageList(resolver.apply(name), name)) {
                 if (insertPicture(cell, data, name, columnOffset)) {
                     columnOffset++;
@@ -446,7 +460,15 @@ public class ExcelTemplateFiller {
         try {
             if (value == null) return null;
             if (value instanceof byte[] bytes) return bytes.length > 0 ? bytes : null;
-            if (value instanceof File file) return Files.readAllBytes(file.toPath());
+            if (value instanceof File file) {
+                // cached like URL downloads: the same File across a thousand list rows
+                // is read from disk once
+                String cacheKey = file.getAbsolutePath();
+                if (downloadCache.containsKey(cacheKey)) return downloadCache.get(cacheKey);
+                byte[] data = Files.readAllBytes(file.toPath());
+                downloadCache.put(cacheKey, data);
+                return data;
+            }
             if (value instanceof InputStream in) return in.readAllBytes();
         } catch (IOException e) {
             log.warn("Image placeholder '{}' skipped: cannot read image source", name, e);
@@ -464,14 +486,87 @@ public class ExcelTemplateFiller {
     private byte[] downloadImage(String url, String name) {
         if (url.isBlank()) return null;
         if (downloadCache.containsKey(url)) return downloadCache.get(url);
-        byte[] data = null;
-        try (InputStream in = ImageDownLoadTask.openGuardedStream(url, imageReadTimeOut)) {
-            data = in.readAllBytes();
-        } catch (Exception e) {
-            log.warn("Image placeholder '{}' skipped: download failed for {}", name, url, e);
-        }
+        byte[] data = fetchImage(url);
         downloadCache.put(url, data);
         return data;
+    }
+
+    /** The cache-free guarded fetch; safe to call from the prefetch worker threads. */
+    private byte[] fetchImage(String url) {
+        try (InputStream in = ImageDownLoadTask.openGuardedStream(url, imageReadTimeOut)) {
+            return in.readAllBytes();
+        } catch (Exception e) {
+            log.warn("Image download failed for {}", url, e);
+            return null;
+        }
+    }
+
+    /**
+     * Downloads all distinct image URLs the template will need in parallel (bounded at
+     * {@value #MAX_PARALLEL_DOWNLOADS} threads) before the single-threaded fill starts, so a
+     * list whose rows carry many different URLs is not bottlenecked on sequential network
+     * round-trips. Results land in {@link #downloadCache}; the fill itself only sees cache hits.
+     */
+    private void prefetchImages() {
+        Set<String> urls = collectImageUrls();
+        if (urls.size() < 2) return;
+        ExecutorService pool = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_DOWNLOADS, urls.size()));
+        try {
+            Map<String, Future<byte[]>> futures = new LinkedHashMap<>();
+            for (String url : urls) {
+                futures.put(url, pool.submit(() -> fetchImage(url)));
+            }
+            for (Map.Entry<String, Future<byte[]>> entry : futures.entrySet()) {
+                byte[] data = null;
+                try {
+                    data = entry.getValue().get();
+                } catch (Exception e) {
+                    log.warn("Image download failed for {}", entry.getKey(), e);
+                }
+                downloadCache.put(entry.getKey(), data);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Collects the distinct, not-yet-cached URL/path strings every image placeholder will resolve. */
+    private Set<String> collectImageUrls() {
+        Set<String> urls = new LinkedHashSet<>();
+        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+            for (Row row : workbook.getSheetAt(i)) {
+                for (Cell cell : row) {
+                    String raw = getCellStringValue(cell);
+                    if (!raw.contains("@image:")) continue;
+                    Matcher m = ANY_IMAGE_PLACEHOLDER.matcher(raw);
+                    while (m.find()) {
+                        String prefix = m.group(1);
+                        String name = m.group(2);
+                        if (prefix == null) {
+                            addUrlCandidates(urls, pictureContext.get(name));
+                        } else {
+                            List<Map<String, Object>> rows = listContext.get(prefix);
+                            if (rows != null) {
+                                for (Map<String, Object> rowData : rows) {
+                                    addUrlCandidates(urls, rowData.get(name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        urls.removeIf(downloadCache::containsKey);
+        return urls;
+    }
+
+    private void addUrlCandidates(Set<String> urls, Object value) {
+        if (value instanceof String s && !s.isBlank()) {
+            for (String part : imagesSeparatorPattern.split(s)) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) urls.add(trimmed);
+            }
+        }
     }
 
     /**
@@ -489,28 +584,63 @@ public class ExcelTemplateFiller {
             log.warn("Image placeholder '{}' skipped: unrecognized image format", name);
             return false;
         }
-        Integer pictureIndex = pictureIndexCache.get(data);
-        if (pictureIndex == null) {
-            pictureIndex = workbook.addPicture(data, format.poiPictureType());
-            pictureIndexCache.put(data, pictureIndex);
+        // of(Workbook) accepts any workbook type; HSSF rejects GIF/BMP type constants with an
+        // IllegalStateException — degrade to the same skip-with-warning as other bad images
+        // instead of aborting the whole fill.
+        try {
+            PictureBytes key = new PictureBytes(data);
+            Integer pictureIndex = pictureIndexCache.get(key);
+            if (pictureIndex == null) {
+                pictureIndex = workbook.addPicture(data, format.poiPictureType());
+                pictureIndexCache.put(key, pictureIndex);
+            }
+            Sheet sheet = cell.getSheet();
+            Drawing<?> drawing = sheet.getDrawingPatriarch();
+            if (drawing == null) {
+                drawing = sheet.createDrawingPatriarch();
+            }
+            int column = cell.getColumnIndex() + columnOffset;
+            ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
+            anchor.setCol1(column);
+            anchor.setRow1(cell.getRowIndex());
+            anchor.setCol2(column + 1);
+            anchor.setRow2(cell.getRowIndex() + 1);
+            anchor.setAnchorType(ClientAnchor.AnchorType.MOVE_AND_RESIZE);
+            drawing.createPicture(anchor, pictureIndex);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Image placeholder '{}' skipped: the workbook rejected the image", name, e);
+            return false;
         }
-        Sheet sheet = cell.getSheet();
-        Drawing<?> drawing = sheet.getDrawingPatriarch();
-        if (drawing == null) {
-            drawing = sheet.createDrawingPatriarch();
-        }
-        int column = cell.getColumnIndex() + columnOffset;
-        ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
-        anchor.setCol1(column);
-        anchor.setRow1(cell.getRowIndex());
-        anchor.setCol2(column + 1);
-        anchor.setRow2(cell.getRowIndex() + 1);
-        anchor.setAnchorType(ClientAnchor.AnchorType.MOVE_AND_RESIZE);
-        drawing.createPicture(anchor, pictureIndex);
-        return true;
     }
 
-    /** Replaces all {@code ${key}} placeholders in a cell's string value with context values. */
+    /** Content-based map key so identical images share one media part regardless of source. */
+    private static final class PictureBytes {
+        private final byte[] data;
+        private final int hash;
+
+        PictureBytes(byte[] data) {
+            this.data = data;
+            this.hash = Arrays.hashCode(data);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof PictureBytes other && hash == other.hash && Arrays.equals(data, other.data);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+    }
+
+    /**
+     * Replaces all {@code ${key}} placeholders in a cell's string value with context values.
+     * Placeholders using the {@code @image:} grammar are left untouched: they belong to the
+     * picture passes, which may run later (a scalar {@code ${@image:key}} inside a list
+     * template row must survive the list expansion's text fill).
+     */
     private void fillCell(Cell cell, Map<String, Object> ctx) {
         if (cell.getCellType() != CellType.STRING) return;
         String raw = cell.getStringCellValue();
@@ -520,14 +650,34 @@ public class ExcelTemplateFiller {
         StringBuffer sb = new StringBuffer();
         boolean found = false;
         while (m.find()) {
-            found = true;
             String key = m.group(1);
+            if (key.contains("@image:")) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group()));
+                continue;
+            }
+            found = true;
             Object val = ctx.get(key);
             m.appendReplacement(sb, val != null ? Matcher.quoteReplacement(val.toString()) : "");
         }
         m.appendTail(sb);
         if (found) {
             cell.setCellValue(sb.toString());
+        }
+    }
+
+    /**
+     * Clears image placeholders that no pass could resolve (e.g. a {@code ${k.@image:x}}
+     * whose list key was never registered), keeping the "unresolved placeholders end up
+     * blank" invariant that text placeholders already have.
+     */
+    private void clearLeftoverImagePlaceholders(Cell cell) {
+        if (cell.getCellType() != CellType.STRING) return;
+        String raw = cell.getStringCellValue();
+        if (!raw.contains("@image:")) return;
+        Matcher m = ANY_IMAGE_PLACEHOLDER.matcher(raw);
+        if (m.find()) {
+            log.warn("Unresolved image placeholder '{}' cleared", m.group());
+            cell.setCellValue(m.replaceAll(""));
         }
     }
 

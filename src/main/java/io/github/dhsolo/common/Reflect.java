@@ -15,6 +15,9 @@
  */
 package io.github.dhsolo.common;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,6 +39,8 @@ import java.util.function.Consumer;
  * @since 1.0
  */
 public final class Reflect {
+
+    private static final Logger log = LoggerFactory.getLogger(Reflect.class);
 
     private Reflect() {}
 
@@ -183,11 +188,18 @@ public final class Reflect {
                 Object value = entry.getValue();
                 // Imported cell values are mostly Strings; convert to the field's type via the
                 // same table the column import uses. Unconvertible values skip the field
-                // instead of blowing up the whole mapping.
+                // instead of blowing up the whole mapping — with a WARN trail, so a skipped
+                // field is distinguishable from a genuinely empty cell.
                 if (!f.getType().isInstance(value)) {
                     try {
                         value = CommonUtil.convert(value, f.getType());
+                        if (value == null && !entry.getValue().toString().isBlank()) {
+                            log.warn("mapToBean: value '{}' is not convertible to {} — field '{}' skipped",
+                                    entry.getValue(), f.getType().getName(), f.getName());
+                        }
                     } catch (RuntimeException conversionFailed) {
+                        log.warn("mapToBean: value '{}' rejected while converting to {} — field '{}' skipped",
+                                entry.getValue(), f.getType().getName(), f.getName(), conversionFailed);
                         value = null;
                     }
                 }

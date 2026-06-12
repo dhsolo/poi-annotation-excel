@@ -59,6 +59,42 @@ class ConversionAndUrlTest {
                 .isEqualTo("http://h/a%20b.png?x=1&y=2#f");
     }
 
+    /**
+     * Regression: the Integer/BigInteger branches cut the numeric string at the first
+     * {@code '.'} — for {@code Double.toString} values in scientific notation
+     * ({@code "1.2345678E7"}) that silently produced {@code 1} instead of {@code 12345678}.
+     */
+    @Test
+    void convertResolvesScientificNotationForIntegerTargets() {
+        assertThat(CommonUtil.convert(12345678.0d, Integer.class)).isEqualTo(12345678);
+        assertThat(CommonUtil.convert("1.2E3", java.math.BigInteger.class))
+                .isEqualTo(java.math.BigInteger.valueOf(1200));
+        // legacy truncation semantics for plain decimals are preserved
+        assertThat(CommonUtil.convert("123.99", Integer.class)).isEqualTo(123);
+    }
+
+    @Test
+    void mapToBeanResolvesDoubleToIntFieldExactly() {
+        IntBean bean = Reflect.mapToBean(Map.of("orderId", 12345678.0d), IntBean.class);
+        assertThat(bean.orderId).isEqualTo(12345678);
+    }
+
+    /**
+     * Regression: lenient prefix parsing let {@code "yyyy-MM-dd"} swallow a trailing
+     * {@code "HH:mm"} (time silently dropped) and rolled invalid field values over to a
+     * different date. Parsing is now strict full-string with in-range fields.
+     */
+    @Test
+    void parseDateIsStrictAndKeepsMinutePrecision() {
+        assertThat(CommonUtil.formatDate(CommonUtil.parseDate("2024-05-06 10:30"), "yyyy-MM-dd HH:mm"))
+                .isEqualTo("2024-05-06 10:30");
+        assertThat(CommonUtil.parseDate("2024-99-99")).isNull();
+        assertThat(CommonUtil.formatDate(CommonUtil.parseDate("2024-05-06"), "yyyy-MM-dd"))
+                .isEqualTo("2024-05-06");
+        assertThat(CommonUtil.formatDate(CommonUtil.parseDate("2024-05-06 10:30:45"), "yyyy-MM-dd HH:mm:ss"))
+                .isEqualTo("2024-05-06 10:30:45");
+    }
+
     public static class Bean {
         private String name;
         private Integer age;
@@ -67,6 +103,13 @@ class ConversionAndUrlTest {
         private Integer broken;
 
         public Bean() {
+        }
+    }
+
+    public static class IntBean {
+        private int orderId;
+
+        public IntBean() {
         }
     }
 }

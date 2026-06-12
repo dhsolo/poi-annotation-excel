@@ -15,7 +15,10 @@
  */
 package io.github.dhsolo.common;
 
-import java.text.ParseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -29,6 +32,8 @@ import java.util.Date;
  * @since 1.0
  */
 public class CommonUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(CommonUtil.class);
 
     /**
      * Tests whether a string is {@code null} or contains only whitespace characters.
@@ -63,9 +68,12 @@ public class CommonUtil {
 
     /** Date patterns tried, most specific first, when parsing date strings. */
     private static final String[] DATE_PATTERNS = {
+            "yyyy-MM-dd HH:mm:ss.SSS",
             "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd'T'HH:mm:ss",
             "yyyy/MM/dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy/MM/dd HH:mm",
             "yyyy-MM-dd",
             "yyyy/MM/dd",
             "yyyy.MM.dd",
@@ -75,19 +83,28 @@ public class CommonUtil {
     };
 
     /**
-     * Parses a date string by trying the known patterns in order.
+     * Parses a date string by trying the known patterns in order. Parsing is strict: the
+     * pattern must consume the whole string (a date-only pattern never silently swallows a
+     * trailing time-of-day) and field values must be in range ({@code 2024-99-99} is rejected
+     * instead of leniently rolling over to a different date).
      *
      * @param source the date text; may be {@code null}
-     * @return the parsed {@link Date}, or {@code null} when nothing matches
+     * @return the parsed {@link Date}, or {@code null} when nothing matches (logged as WARN)
      */
     public static Date parseDate(String source) {
         if (source == null) return null;
         String trimmed = source.trim();
+        if (trimmed.isEmpty()) return null;
         for (String pattern : DATE_PATTERNS) {
-            try {
-                return new SimpleDateFormat(pattern).parse(trimmed);
-            } catch (ParseException ignored) {}
+            SimpleDateFormat format = new SimpleDateFormat(pattern);
+            format.setLenient(false);
+            ParsePosition pos = new ParsePosition(0);
+            Date parsed = format.parse(trimmed, pos);
+            if (parsed != null && pos.getIndex() == trimmed.length()) {
+                return parsed;
+            }
         }
+        log.warn("Unable to parse date string '{}' with any of the known patterns", trimmed);
         return null;
     }
 
@@ -117,10 +134,7 @@ public class CommonUtil {
             break;
         case "java.lang.Integer":
         case "int":
-            if (numVal.indexOf(".") != -1) {
-                numVal = numVal.substring(0, numVal.indexOf("."));
-            }
-            result = Integer.valueOf(numVal);
+            result = integerPart(numVal).intValueExact();
             break;
         case "java.lang.Double":
         case "double":
@@ -159,9 +173,7 @@ public class CommonUtil {
             result = new java.math.BigDecimal(numVal);
             break;
         case "java.math.BigInteger":
-            result = new java.math.BigInteger(numVal.indexOf(".") != -1
-                    ? numVal.substring(0, numVal.indexOf("."))
-                    : numVal);
+            result = integerPart(numVal);
             break;
         case "java.lang.Character":
         case "char": {
@@ -185,5 +197,17 @@ public class CommonUtil {
         }
         }
         return result;
+    }
+
+    /**
+     * The integer part of a numeric string, truncated toward zero (legacy import semantics
+     * for decimal cell text). Goes through {@link java.math.BigDecimal} so scientific
+     * notation resolves exactly — a naive cut at the first {@code '.'} would turn
+     * {@code "1.2345678E7"} (the {@code Double.toString} form of 12345678) into {@code 1}.
+     *
+     * @throws NumberFormatException when the string is not numeric
+     */
+    private static java.math.BigInteger integerPart(String numVal) {
+        return new java.math.BigDecimal(numVal).toBigInteger();
     }
 }

@@ -126,22 +126,33 @@ public class CSVRow implements Row {
      * Returns the cell at the given zero-based column index.
      *
      * @param cellnum the zero-based column index
-     * @return the {@link CSVCell} at {@code cellnum}
-     * @throws IndexOutOfBoundsException if {@code cellnum} is out of range
+     * @return the {@link CSVCell} at {@code cellnum}, or {@code null} when out of range
+     *         (POI contract — out-of-range lookups do not throw)
      */
     @Override
     public Cell getCell(int cellnum) {
-        // POI contract: out-of-range lookups return null, they do not throw
         if (cellnum < 0 || cellnum >= cells.size()) {
             return null;
         }
         return cells.get(cellnum);
     }
 
-    /** Not supported for CSV format. */
+    /**
+     * Returns the cell at the given index, honouring the POI missing-cell policy. CSV cells
+     * are always {@code STRING}-typed, so "blank" means an empty string value here; the cell
+     * created for {@code CREATE_NULL_AS_BLANK} is a detached empty {@link CSVCell} (the
+     * read-only CSV row itself is not modified).
+     */
     @Override
     public Cell getCell(int cellnum, MissingCellPolicy policy) {
-        return getCell(cellnum);
+        Cell cell = getCell(cellnum);
+        if (policy == MissingCellPolicy.CREATE_NULL_AS_BLANK) {
+            return cell != null ? cell : new CSVCell("", this, cellnum);
+        }
+        if (policy == MissingCellPolicy.RETURN_BLANK_AS_NULL) {
+            return cell != null && !cell.getStringCellValue().isEmpty() ? cell : null;
+        }
+        return cell;
     }
 
     /**

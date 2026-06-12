@@ -361,6 +361,121 @@ class TemplateFillPictureTest {
         }
     }
 
+    @Test
+    void scalarImagePlaceholderInsideListRowSurvivesExpansion() throws Exception {
+        byte[] template = template(sheet -> {
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${items.name}");
+            row.createCell(1).setCellValue("${@image:logo}");
+        });
+
+        byte[] filled = ExcelTemplateFiller.of(template)
+                .fillList("items", List.of(Map.of("name", "a"), Map.of("name", "b"), Map.of("name", "c")))
+                .fillPicture("logo", png())
+                .toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            Sheet sheet = wb.getSheetAt(0);
+            // the placeholder is copied to every expanded row; identical bytes share one media part
+            assertThat(wb.getAllPictures()).hasSize(1);
+            List<Integer> anchorRows = pictures(sheet).stream().map(p -> p.getClientAnchor().getRow1()).toList();
+            assertThat(anchorRows).containsExactlyInAnyOrder(0, 1, 2);
+            assertThat(sheet.getRow(0).getCell(1).getStringCellValue()).isEmpty();
+            assertThat(sheet.getRow(0).getCell(0).getStringCellValue()).isEqualTo("a");
+        }
+    }
+
+    @Test
+    void twoPlaceholdersInOneCellAnchorOnAdjacentColumns() throws Exception {
+        byte[] template = template(sheet -> sheet.createRow(0).createCell(0)
+                .setCellValue("${@image:front}${@image:back}"));
+
+        byte[] filled = ExcelTemplateFiller.of(template)
+                .fillPicture("front", png())
+                .fillPicture("back", jpeg())
+                .toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            Sheet sheet = wb.getSheetAt(0);
+            assertThat(wb.getAllPictures()).hasSize(2);
+            List<Integer> anchorCols = pictures(sheet).stream()
+                    .map(p -> (int) p.getClientAnchor().getCol1()).toList();
+            assertThat(anchorCols).containsExactlyInAnyOrder(0, 1);
+        }
+    }
+
+    @Test
+    void identicalImageContentSharesOneMediaPart() throws Exception {
+        byte[] template = template(sheet -> {
+            sheet.createRow(0).createCell(0).setCellValue("${@image:a}");
+            sheet.createRow(1).createCell(0).setCellValue("${@image:b}");
+        });
+
+        // two distinct arrays with identical content
+        byte[] filled = ExcelTemplateFiller.of(template)
+                .fillPicture("a", png())
+                .fillPicture("b", png())
+                .toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            assertThat(wb.getAllPictures()).hasSize(1);
+            assertThat(pictures(wb.getSheetAt(0))).hasSize(2);
+        }
+    }
+
+    @Test
+    void sameFileAcrossRowsSharesOneMediaPart() throws Exception {
+        byte[] template = template(sheet -> {
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${list.name}");
+            row.createCell(1).setCellValue("${list.@image:photo}");
+        });
+        File pngFile = File.createTempFile("fill-picture-dedupe", ".png");
+        pngFile.deleteOnExit();
+        Files.write(pngFile.toPath(), png());
+
+        List<Map<String, Object>> rows = List.of(
+                Map.of("name", "a", "photo", pngFile),
+                Map.of("name", "b", "photo", pngFile),
+                Map.of("name", "c", "photo", pngFile));
+
+        byte[] filled = ExcelTemplateFiller.of(template).fillList("list", rows).toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            assertThat(wb.getAllPictures()).hasSize(1);
+            List<Integer> anchorRows = pictures(wb.getSheetAt(0)).stream()
+                    .map(p -> p.getClientAnchor().getRow1()).toList();
+            assertThat(anchorRows).containsExactlyInAnyOrder(0, 1, 2);
+        }
+    }
+
+    @Test
+    void hssfTemplateSkipsUnsupportedGifInsteadOfAborting() throws Exception {
+        org.apache.poi.hssf.usermodel.HSSFWorkbook hssf = new org.apache.poi.hssf.usermodel.HSSFWorkbook();
+        hssf.createSheet("t").createRow(0).createCell(0).setCellValue("${@image:logo}");
+
+        byte[] filled = ExcelTemplateFiller.of(hssf).fillPicture("logo", image("gif")).toBytes();
+
+        try (var out = new org.apache.poi.hssf.usermodel.HSSFWorkbook(new ByteArrayInputStream(filled))) {
+            // HSSF rejects the GIF type constant; the fill must skip the image, not abort
+            assertThat(out.getSheetAt(0).getRow(0).getCell(0).getStringCellValue()).isEmpty();
+            assertThat(out.getAllPictures()).isEmpty();
+        }
+    }
+
+    @Test
+    void unregisteredListKeyImagePlaceholderIsCleared() throws Exception {
+        byte[] template = template(sheet -> sheet.createRow(0).createCell(0)
+                .setCellValue("${ghost.@image:x}"));
+
+        byte[] filled = ExcelTemplateFiller.of(template).toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            assertThat(wb.getSheetAt(0).getRow(0).getCell(0).getStringCellValue()).isEmpty();
+            assertThat(wb.getAllPictures()).isEmpty();
+        }
+    }
+
     private static HttpServer serverWith(Map<String, byte[]> routes) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         routes.forEach((path, body) -> server.createContext(path, exchange -> {

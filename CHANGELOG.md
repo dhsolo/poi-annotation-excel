@@ -35,6 +35,41 @@ All notable changes to this project are documented here. The format is based on
   removing the spurious `StatusLogger` ERROR line from every build.
 
 ### Fixed
+- Picture pre-registration no longer duplicates the first registered media part on POI ≥5.4:
+  the dedup compared wrapper identity (`XSSFPictureData` has no `equals`), missed the wrapper
+  the lazy `getAllPictures()` scan had already created, re-added the part, and shifted every
+  later by-index anchor to the wrong image — a multi-image export displayed image 1 twice and
+  never anchored the last image. Dedup now compares package part names; the reflective field
+  handle is resolved once at class load (fails fast on a future POI rename instead of
+  mid-export).
+- Template picture placeholders:
+  - a scalar `${@image:key}` inside a list template row survives the list expansion (the text
+    fill used to wipe it as an unknown key before the picture pass ran) and is anchored on
+    every expanded row;
+  - image placeholders nothing could resolve (e.g. an unregistered list key) are cleared with
+    a warning instead of leaving raw `${...}` text;
+  - two image placeholders in the same cell anchor on adjacent columns instead of overlapping;
+  - identical image content shares one media part regardless of source (content-based dedup
+    replaced the array-identity cache), and the same `File` across many list rows is read from
+    disk once — a repeated per-row logo no longer balloons the output file;
+  - distinct image URLs are prefetched in parallel (up to 8 threads) before the fill, so a
+    list whose rows carry many different URLs is not bottlenecked on sequential downloads;
+  - on a non-XSSF workbook (e.g. an HSSF `.xls` template via `of(Workbook)`), an image format
+    the workbook rejects (GIF/BMP on HSSF) is skipped with a warning instead of aborting the
+    whole fill.
+- `CommonUtil.convert` resolves scientific notation exactly for integer targets: the
+  Integer/BigInteger branches cut the numeric string at the first `'.'`, so a `Double` value
+  like `12345678.0` (`"1.2345678E7"`) silently became `1` via `Reflect.mapToBean`. Plain
+  decimals keep the legacy truncation (`"123.99"` → 123). `mapToBean` also logs a WARN when a
+  value is skipped as unconvertible, so a skipped field is distinguishable from an empty cell.
+- `CommonUtil.parseDate` is strict: patterns must consume the whole string (a date-only
+  pattern no longer silently swallows a trailing time-of-day — `"2024-05-06 10:30"` now keeps
+  10:30 via new minute-precision patterns) and field values must be in range (`2024-99-99` is
+  rejected instead of leniently rolling over). The WARN for unparseable dates (lost in the
+  issue #2 extraction) is restored.
+- `CSVRow.getCell(int, MissingCellPolicy)` honours the policy (`CREATE_NULL_AS_BLANK` returns
+  a blank cell instead of null, `RETURN_BLANK_AS_NULL` maps empty tokens to null); stale
+  javadoc on the CSV adapter (duplicate `@return`, obsolete `@throws`) cleaned up.
 - The CSV adapter now follows the POI contracts: `getLastCellNum()` returns last index **plus
   one** (so the trailing required-column check works for CSV exactly as for real sheets),
   out-of-range `getRow`/`getCell` return null instead of throwing, the row/cell iterators work
