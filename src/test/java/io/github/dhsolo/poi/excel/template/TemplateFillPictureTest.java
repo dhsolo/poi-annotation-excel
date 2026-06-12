@@ -15,6 +15,7 @@
  */
 package io.github.dhsolo.poi.excel.template;
 
+import com.sun.net.httpserver.HttpServer;
 import org.apache.poi.ss.usermodel.ClientAnchor;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFDrawing;
@@ -29,12 +30,16 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -202,6 +207,115 @@ class TemplateFillPictureTest {
             assertThat(sheet.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Report");
             assertThat(pictures(sheet)).hasSize(1);
         }
+    }
+
+    @Test
+    void urlValueIsDownloadedThroughTheGuardedFetch() throws Exception {
+        byte[] template = template(sheet -> sheet.createRow(0).createCell(0).setCellValue("${@image:logo}"));
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = pngServer(hits);
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/logo.png";
+
+            byte[] filled = ExcelTemplateFiller.of(template).fillPicture("logo", url).toBytes();
+
+            try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+                assertThat(wb.getAllPictures()).hasSize(1);
+                assertThat(wb.getAllPictures().get(0).suggestFileExtension()).isEqualTo("png");
+                assertThat(pictures(wb.getSheetAt(0))).hasSize(1);
+            }
+            assertThat(hits).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sameUrlAcrossRowsDownloadsOnceAndSharesOneMediaPart() throws Exception {
+        byte[] template = template(sheet -> {
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${list.name}");
+            row.createCell(1).setCellValue("${list.@image:photo}");
+        });
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = pngServer(hits);
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/logo.png";
+            List<Map<String, Object>> rows = List.of(
+                    Map.of("name", "a", "photo", url),
+                    Map.of("name", "b", "photo", url),
+                    Map.of("name", "c", "photo", url));
+
+            byte[] filled = ExcelTemplateFiller.of(template).fillList("list", rows).toBytes();
+
+            try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+                Sheet sheet = wb.getSheetAt(0);
+                assertThat(wb.getAllPictures()).hasSize(1); // one media part, anchored three times
+                List<Integer> anchorRows = pictures(sheet).stream().map(p -> p.getClientAnchor().getRow1()).toList();
+                assertThat(anchorRows).containsExactlyInAnyOrder(0, 1, 2);
+            }
+            assertThat(hits).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void unreachableUrlClearsPlaceholdersWithoutFailingTheFill() throws Exception {
+        byte[] template = template(sheet -> {
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${list.name}");
+            row.createCell(1).setCellValue("${list.@image:photo}");
+        });
+        int deadPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            deadPort = socket.getLocalPort();
+        }
+        String deadUrl = "http://127.0.0.1:" + deadPort + "/gone.png";
+        List<Map<String, Object>> rows = List.of(
+                Map.of("name", "a", "photo", deadUrl),
+                Map.of("name", "b", "photo", deadUrl));
+
+        byte[] filled = ExcelTemplateFiller.of(template).fillList("list", rows).toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            Sheet sheet = wb.getSheetAt(0);
+            assertThat(wb.getAllPictures()).isEmpty();
+            assertThat(sheet.getRow(0).getCell(1).getStringCellValue()).isEmpty();
+            assertThat(sheet.getRow(1).getCell(0).getStringCellValue()).isEqualTo("b");
+        }
+    }
+
+    @Test
+    void stringValueWithoutHttpPrefixReadsALocalFile() throws Exception {
+        byte[] template = template(sheet -> sheet.createRow(0).createCell(0).setCellValue("${@image:logo}"));
+        File pngFile = File.createTempFile("fill-picture-url", ".png");
+        pngFile.deleteOnExit();
+        Files.write(pngFile.toPath(), png());
+
+        byte[] filled = ExcelTemplateFiller.of(template)
+                .fillPicture("logo", pngFile.getAbsolutePath())
+                .toBytes();
+
+        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(filled))) {
+            assertThat(wb.getAllPictures()).hasSize(1);
+            assertThat(wb.getAllPictures().get(0).suggestFileExtension()).isEqualTo("png");
+        }
+    }
+
+    private static HttpServer pngServer(AtomicInteger hits) throws IOException {
+        byte[] body = image("png");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/logo.png", exchange -> {
+            hits.incrementAndGet();
+            exchange.getResponseHeaders().add("Content-Type", "image/png");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        return server;
     }
 
     private static List<XSSFPicture> pictures(Sheet sheet) {

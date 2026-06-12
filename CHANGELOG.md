@@ -8,11 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 - `ExcelTemplateFiller` picture placeholders: `${@image:key}` anchors an image registered via
-  the new `fillPicture(key, byte[]/File/InputStream)` over the placeholder cell, and
-  `${list.@image:key}` inserts one image per expanded list row from the row map's value.
-  The image format (PNG/JPEG/GIF/BMP) is sniffed from the bytes and embedded as-is; missing
-  keys or unrecognizable bytes just clear the placeholder with a warning. Anchors cooperate
-  with the existing list-expansion shift. `PictureFormat` now exposes `poiPictureType()`.
+  the new `fillPicture(key, byte[]/File/InputStream/String URL)` over the placeholder cell, and
+  `${list.@image:key}` inserts one image per expanded list row from the row map's value
+  (same four types). String values are fetched through the same guarded path as picture
+  exports — protocol whitelist, `ImageDownloadPolicy` (SSRF), configurable read timeout
+  (`imageReadTimeOut`, default 2000 ms) and the 64 MB size cap; identical URLs are downloaded
+  once (failures too) and identical images share one media part. The image format
+  (PNG/JPEG/GIF/BMP) is sniffed from the bytes and embedded as-is; missing keys, failed
+  downloads or unrecognizable bytes just clear the placeholder with a warning. Anchors
+  cooperate with the existing list-expansion shift. `PictureFormat` now exposes
+  `poiPictureType()`; `ImageDownLoadTask.openGuardedStream` is now public.
 
 ### Security
 - Apache POI upgraded 5.2.5 → 5.5.1 (covers CVE-2025-31672 in OOXML parsing — the import path

@@ -163,10 +163,11 @@ public class ImageDownLoadTask implements Runnable {
      * path. The returned stream is size-limited to {@link #MAX_IMAGE_BYTES} to defend against
      * oversized or hostile responses.
      *
-     * <p>Package-visible so every image fetch path (including the synchronous fallback in
-     * {@code DefaultPictureHandler.setPicture}) goes through the same guards.
+     * <p>Public so every image fetch path (the synchronous fallback in
+     * {@code DefaultPictureHandler.setPicture}, the template filler's URL picture
+     * placeholders, ...) goes through the same guards.
      */
-    static InputStream openGuardedStream(String url, int imageReadTimeOut) throws Exception {
+    public static InputStream openGuardedStream(String url, int imageReadTimeOut) throws Exception {
         InputStream raw;
         if (url.startsWith("http")) {
             URL imgUrl = new URL(urlEncoder(url));

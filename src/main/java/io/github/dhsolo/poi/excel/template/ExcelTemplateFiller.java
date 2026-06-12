@@ -20,6 +20,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.dhsolo.common.Reflect;
+import io.github.dhsolo.poi.excel.picture.ImageDownLoadTask;
 import io.github.dhsolo.poi.excel.picture.PictureFormat;
 
 import java.io.*;
@@ -42,9 +43,10 @@ import java.util.regex.Pattern;
  * <p>Picture placeholders embed images instead of text. {@code ${@image:logo}} marks the cell
  * where a picture registered via {@link #fillPicture(String, byte[])} is anchored;
  * {@code ${list.@image:photo}} inside a list row takes the image from each row map's
- * {@code photo} value ({@code byte[]}, {@link File} or {@link InputStream}). The placeholder
- * text is cleared and the picture is anchored over the cell (moving and resizing with it).
- * The image format (PNG/JPEG/GIF/BMP) is detected from the bytes and preserved.
+ * {@code photo} value ({@code byte[]}, {@link File}, {@link InputStream}, or a {@link String}
+ * URL / local path downloaded through the same guarded fetch as picture exports). The
+ * placeholder text is cleared and the picture is anchored over the cell (moving and resizing
+ * with it). The image format (PNG/JPEG/GIF/BMP) is detected from the bytes and preserved.
  *
  * <p>Example template layout:
  * <pre>
@@ -69,11 +71,17 @@ public class ExcelTemplateFiller {
     private static final Logger log = LoggerFactory.getLogger(ExcelTemplateFiller.class);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
     private static final Pattern IMAGE_PLACEHOLDER = Pattern.compile("\\$\\{@image:([^}]+)}");
+    private static final int DEFAULT_IMAGE_READ_TIME_OUT = 2000;
 
     private final Workbook workbook;
     private final Map<String, Object> context = new LinkedHashMap<>();
     private final Map<String, List<Map<String, Object>>> listContext = new LinkedHashMap<>();
-    private final Map<String, byte[]> pictureContext = new LinkedHashMap<>();
+    private final Map<String, Object> pictureContext = new LinkedHashMap<>();
+    /** URL/path → downloaded bytes; a {@code null} value caches a failure so it is logged once. */
+    private final Map<String, byte[]> downloadCache = new HashMap<>();
+    /** Bytes instance → media part index, so one image anchored many times is stored once. */
+    private final Map<byte[], Integer> pictureIndexCache = new IdentityHashMap<>();
+    private int imageReadTimeOut = DEFAULT_IMAGE_READ_TIME_OUT;
 
     private ExcelTemplateFiller(Workbook workbook) {
         this.workbook = workbook;
@@ -202,6 +210,33 @@ public class ExcelTemplateFiller {
      */
     public ExcelTemplateFiller fillPicture(String key, InputStream image) throws IOException {
         return fillPicture(key, image == null ? null : image.readAllBytes());
+    }
+
+    /**
+     * Variant of {@link #fillPicture(String, byte[])} that downloads the image from an
+     * {@code http}/{@code https} URL (or reads a local file path) when the workbook is
+     * written. The fetch goes through the same guards as picture exports — protocol
+     * whitelist, {@link io.github.dhsolo.poi.excel.picture.ImageDownloadPolicy} (SSRF),
+     * read timeout ({@link #imageReadTimeOut(int)}) and the size cap. A failed download
+     * clears the placeholder with a warning instead of aborting the fill; identical
+     * URLs are downloaded once and stored as a single media part.
+     *
+     * @param key      placeholder name, e.g. {@code "logo"} matches {@code ${@image:logo}}
+     * @param imageUrl image URL or local file path; blank values leave the placeholder to be cleared
+     * @return this filler for method chaining
+     */
+    public ExcelTemplateFiller fillPicture(String key, String imageUrl) {
+        if (imageUrl != null && !imageUrl.isBlank()) pictureContext.put(key, imageUrl);
+        return this;
+    }
+
+    /**
+     * Sets the connect/read timeout (milliseconds) for URL picture downloads.
+     * Defaults to 2000 ms, matching the picture export default.
+     */
+    public ExcelTemplateFiller imageReadTimeOut(int millis) {
+        this.imageReadTimeOut = millis;
+        return this;
     }
 
     /**
@@ -377,12 +412,31 @@ public class ExcelTemplateFiller {
             if (value instanceof byte[] bytes) return bytes.length > 0 ? bytes : null;
             if (value instanceof File file) return Files.readAllBytes(file.toPath());
             if (value instanceof InputStream in) return in.readAllBytes();
+            if (value instanceof String url) return downloadImage(url, name);
         } catch (IOException e) {
             log.warn("Image placeholder '{}' skipped: cannot read image source", name, e);
             return null;
         }
         log.warn("Image placeholder '{}' skipped: unsupported value type {}", name, value.getClass().getName());
         return null;
+    }
+
+    /**
+     * Downloads (or reads, for a local path) image bytes through the guarded fetch shared
+     * with picture exports. Results — including failures — are cached per URL, so the same
+     * logo across a thousand list rows is fetched once and a dead URL times out once.
+     */
+    private byte[] downloadImage(String url, String name) {
+        if (url.isBlank()) return null;
+        if (downloadCache.containsKey(url)) return downloadCache.get(url);
+        byte[] data = null;
+        try (InputStream in = ImageDownLoadTask.openGuardedStream(url, imageReadTimeOut)) {
+            data = in.readAllBytes();
+        } catch (Exception e) {
+            log.warn("Image placeholder '{}' skipped: download failed for {}", name, url, e);
+        }
+        downloadCache.put(url, data);
+        return data;
     }
 
     /**
@@ -396,7 +450,11 @@ public class ExcelTemplateFiller {
             log.warn("Image placeholder '{}' skipped: unrecognized image format", name);
             return;
         }
-        int pictureIndex = workbook.addPicture(data, format.poiPictureType());
+        Integer pictureIndex = pictureIndexCache.get(data);
+        if (pictureIndex == null) {
+            pictureIndex = workbook.addPicture(data, format.poiPictureType());
+            pictureIndexCache.put(data, pictureIndex);
+        }
         Sheet sheet = cell.getSheet();
         Drawing<?> drawing = sheet.getDrawingPatriarch();
         if (drawing == null) {
