@@ -68,7 +68,7 @@ public class DefaultExcelExporter implements ExcelExporter {
 
     @Override
     public Workbook getWorkBook() {
-        if (isZip && !isReCreate) {
+        if (isZip && !isReCreate && tempWorkFile != null) {
             try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
                 recreatedBook = WorkbookFactory.create(fis);
                 isReCreate = true;
@@ -95,6 +95,10 @@ public class DefaultExcelExporter implements ExcelExporter {
             }
             recreatedBook = null;
         }
+        // The picture-injected temp file is kept alive across export/upload/getInputStream/
+        // getWorkBook calls so they are idempotent (a second call no longer NPEs on a file the
+        // first call deleted); it is removed here at end-of-life.
+        deleteTempFile();
     }
 
     /**
@@ -108,35 +112,27 @@ public class DefaultExcelExporter implements ExcelExporter {
 
     @Override
     public void export(OutputStream outputStream, String exportFileName) throws IOException {
-        try {
-            if (isZip && !isReCreate) {
-                try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
-                    fis.transferTo(outputStream);
-                }
-            } else {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                activeBook().write(baos);
-                outputStream.write(baos.toByteArray());
+        if (isZip && !isReCreate && tempWorkFile != null) {
+            try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
+                fis.transferTo(outputStream);
             }
-            outputStream.flush();
-        } finally {
-            deleteTempFile();
+        } else {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            activeBook().write(baos);
+            outputStream.write(baos.toByteArray());
         }
+        outputStream.flush();
     }
 
     @Override
     public <R> R upload(ExcelUploader<R> uploader, String exportFileName) throws IOException {
         byte[] data;
-        try {
-            if (isZip && !isReCreate) {
-                data = readFileToMemory();
-            } else {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                activeBook().write(baos);
-                data = baos.toByteArray();
-            }
-        } finally {
-            deleteTempFile();
+        if (isZip && !isReCreate && tempWorkFile != null) {
+            data = readFileToMemory();
+        } else {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            activeBook().write(baos);
+            data = baos.toByteArray();
         }
         try (ByteArrayInputStream in = new ByteArrayInputStream(data)) {
             return uploader.upload(in, exportFileName);
@@ -148,14 +144,12 @@ public class DefaultExcelExporter implements ExcelExporter {
         if (!excelCreated) {
             throw new RuntimeException("Excel has not been created yet; call createExcel() first");
         }
-        if (isZip && !isReCreate) {
+        if (isZip && !isReCreate && tempWorkFile != null) {
             try {
                 byte[] data = readFileToMemory();
                 return new ByteArrayInputStream(data);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to read Excel temporary file", e);
-            } finally {
-                deleteTempFile();
             }
         } else {
             try {
@@ -170,11 +164,13 @@ public class DefaultExcelExporter implements ExcelExporter {
 
     @Override
     public void exportLocal(String filepath) {
-        if (!filepath.endsWith(currentExcelType)) {
+        // Match the extension case-insensitively and require the dot, so "report.XLSX" is not
+        // doubled to "report.XLSX.xlsx" and an extension-less path still gets one appended.
+        if (!filepath.toLowerCase().endsWith("." + currentExcelType.toLowerCase())) {
             filepath += "." + currentExcelType;
         }
         try (FileOutputStream fos = new FileOutputStream(filepath)) {
-            if (isZip && !isReCreate) {
+            if (isZip && !isReCreate && tempWorkFile != null) {
                 try (FileInputStream fis = new FileInputStream(tempWorkFile)) {
                     fis.transferTo(fos);
                 }
@@ -186,8 +182,6 @@ public class DefaultExcelExporter implements ExcelExporter {
         } catch (IOException e) {
             logger.error("Export failed", e);
             throw new RuntimeException("Failed to export Excel to local file: " + filepath, e);
-        } finally {
-            deleteTempFile();
         }
     }
 
@@ -205,7 +199,9 @@ public class DefaultExcelExporter implements ExcelExporter {
 
     private void deleteTempFile() {
         if (tempWorkFile != null) {
-            tempWorkFile.delete();
+            if (!tempWorkFile.delete() && tempWorkFile.exists()) {
+                logger.debug("Could not delete temp work file: {}", tempWorkFile.getAbsolutePath());
+            }
             tempWorkFile = null;
         }
     }

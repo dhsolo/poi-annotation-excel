@@ -27,6 +27,8 @@ import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler.SheetContentsHandl
 import org.apache.poi.xssf.model.SharedStrings;
 import org.apache.poi.xssf.model.StylesTable;
 import org.apache.poi.xssf.usermodel.XSSFComment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
 
@@ -70,6 +72,8 @@ import java.util.Map;
  * @since 1.0
  */
 public final class StreamingExcelReader {
+
+    private static final Logger log = LoggerFactory.getLogger(StreamingExcelReader.class);
 
     private StreamingExcelReader() {}
 
@@ -279,7 +283,9 @@ public final class StreamingExcelReader {
                 }
                 result.add(bean);
             } catch (Exception e) {
-                throw new RuntimeException("Failed to map row " + rowIndex + " to " + type.getName(), e);
+                // Skip only the offending row (mirrors the DOM ExcelImportor.getObject behaviour)
+                // instead of aborting the whole stream on a single bad row.
+                log.error("Failed to map row {} to {}; row skipped", rowIndex, type.getName(), e);
             }
         });
         return result;

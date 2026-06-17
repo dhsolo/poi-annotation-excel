@@ -228,7 +228,8 @@ public class DefaultDataValidator implements DataValidator {
         for (int i = 0; i < validationRowCount; i++) {
             int i1 = rowNum + i;
             // Prefer reusing an existing row via getRow to avoid overwriting data rows with createRow
-            Row row1 = sheet.getRow(i1) != null ? sheet.getRow(i1) : sheet.createRow(i1);
+            Row row1 = sheet.getRow(i1);
+            if (row1 == null) row1 = sheet.createRow(i1);
             Cell cell1 = row1.createCell(index);
             for (Map.Entry<String, String> entry : columnCharMap.entrySet()) {
                 strFormula = strFormula.replace(entry.getKey(), entry.getValue() + (i1 + 1));

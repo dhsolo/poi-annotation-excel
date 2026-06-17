@@ -19,6 +19,7 @@ import io.github.dhsolo.poi.excel.cascade.CascadeValidateModelWrapper;
 import io.github.dhsolo.poi.excel.model.ExcelRowData;
 import io.github.dhsolo.poi.excel.render.ExcelTranslateHandler;
 import io.github.dhsolo.poi.excel.validation.ExcelCustomValidate;
+import io.github.dhsolo.common.Reflect;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -507,34 +508,18 @@ public class ExcelModel implements ExcelTranslateHandler, Serializable {
 	 */
 	public ExcelModel copy() {
 		ExcelModel c = new ExcelModel(this.fieldName);
-		c.index = this.index;
-		c.realIndex = this.realIndex;
-		c.columnName = this.columnName;
-		c.noneCellDefaultValue = this.noneCellDefaultValue;
-		c.parent = this.parent;
-		c.needtranslate = this.needtranslate;
-		c.mergeCellIndex = this.mergeCellIndex;
-		c.cascadeValidateModel = this.cascadeValidateModel;
-		c.biFunction = this.biFunction;
-		c.translateMappingInfo = this.translateMappingInfo;
-		c.isPicture = this.isPicture;
-		c.isDate = this.isDate;
-		c.flattened = this.flattened;
-		c.pattern = this.pattern;
-		c.imageVisitPrex = this.imageVisitPrex;
-		c.imageDownPath = this.imageDownPath;
-		c.nullAble = this.nullAble;
-		c.needHandle = this.needHandle;
-		c.needAddTranslationException = this.needAddTranslationException;
-		c.isInteger = this.isInteger;
-		c.isFloat = this.isFloat;
-		c.isDouble = this.isDouble;
-		c.excelCustomValidate = this.excelCustomValidate;
-		c.isListBox = this.isListBox;
-		c.strFormula = this.strFormula;
-		c.isMergeIndexEnd = this.isMergeIndexEnd;
-		c.sourcePath = this.sourcePath;
-		c.sourceField = this.sourceField;
+		// Reflection-based shallow copy: every non-static field propagates automatically, so a
+		// field added later cannot be silently dropped from merge-cell-expansion clones (the old
+		// hand-maintained copy was easy to forget to update). Reference members are shared, not
+		// deep-cloned — every clone describes the same logical column.
+		Reflect.doWithFields(ExcelModel.class, f -> {
+			if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) return;
+			try {
+				f.setAccessible(true);
+				f.set(c, f.get(this));
+			} catch (IllegalAccessException ignored) {
+			}
+		});
 		return c;
 	}
 }

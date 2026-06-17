@@ -172,10 +172,13 @@ public class CSVRow implements Row {
         return (short) (cells.isEmpty() ? -1 : cells.size());
     }
 
-    /** Not supported for CSV format. */
+    /**
+     * Returns the number of cells in this row (POI contract: the physical cell count). Every CSV
+     * token is materialised as a {@link CSVCell}, so this equals the column count.
+     */
     @Override
     public int getPhysicalNumberOfCells() {
-        return 0;
+        return cells.size();
     }
 
     /** Not supported for CSV format. */

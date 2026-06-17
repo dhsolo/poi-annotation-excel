@@ -55,6 +55,11 @@ ExcelUtil.export(response.getOutputStream(), "设备列表.xlsx",
 List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportModel.class);
 ```
 
+> **布局自动对齐**：凡是传 `Class` 的 `importExcel` 重载都会读取该类的 `@ExcelInfo` 来对齐列位——
+> 若导出时设了 `needOrder = true`，文件最前面有「序号」列（占 `orderColumnSpan` 个物理列），导入会**自动跳过**它，
+> 数据列从第 `orderColumnSpan` 个物理列开始映射（不会把序号读进第一个字段）；`@ExcelInfo.exceptColumnNum` 指定的列也会跳过。
+> 因此「用同一个注解模型导出再导入」可以无缝往返。（`importExcelToMap` 不传 class，需自行处理序号列。）
+
 ---
 
 ## 2. 注解参考（全属性）
@@ -248,6 +253,29 @@ private Object sales;   // 锚点字段；值来自行对象的 getQ1()/getQ2()
 ```
 > 非分组列（含序号列）会纵向合并跨两行表头、标题居中显示（无序号列或单列序号时）；仅导出。
 
+### `@ExcelColumn(groups = {...})`（字段）—— 三级及以上多级表头
+两行表头用上面的 `@ExcelColumnParent` 即可；**三级或更多层**用 `@ExcelColumn` 的 `groups`：数组按**从上到下**列出各级父标题，列自身的 `columnName` 是最底行（叶子）。相邻列共享相同的上级前缀时在该层**横向合并**；层数比最深列少的列，其叶子会**纵向合并**到最底行。深度任意。
+
+```java
+@ExcelColumn(columnName = "门店", index = 1)                              private String store;   // 无 groups → 跨满整列表头
+@ExcelColumn(columnName = "Q1", index = 2, groups = {"2024年", "上半年"}) private Integer q1;
+@ExcelColumn(columnName = "Q2", index = 3, groups = {"2024年", "上半年"}) private Integer q2;
+@ExcelColumn(columnName = "Q3", index = 4, groups = {"2024年", "下半年"}) private Integer q3;
+@ExcelColumn(columnName = "Q4", index = 5, groups = {"2024年", "下半年"}) private Integer q4;
+```
+生成：
+```
+┌──────┬───────────────────────────┐
+│      │           2024年           │   ← groups[0]（横向合并 Q1~Q4）
+│ 门店 ├─────────────┬─────────────┤
+│      │    上半年    │    下半年    │   ← groups[1]
+│      ├──────┬──────┼──────┬──────┤
+│      │  Q1  │  Q2  │  Q3  │  Q4  │   ← columnName（叶子）
+└──────┴──────┴──────┴──────┴──────┘
+```
+再加一层只需把 `groups` 写成 `{"公司","2024年","上半年"}`（四行表头），以此类推。
+> 约束：`groups` 与 `@ExcelColumnParent` **不能在同一个模型混用**（混用会在解析期抛 `ExcelAnnotationException`）；同 `@ExcelColumnParent` 一样**仅导出**。导入时把多行表头当作要跳过的行（用 `startRow` 指到首个数据行），子列按位置映射。
+
 ### `@ExcelContext`（字段或方法）
 在 Sheet 指定位置注入额外的上下文行。`type` 取 `ContextType`：`BEFORE_TITLE`（标题前）、`BETWEEN_TITLE_HEADER`（标题与表头之间）、`BETWEEN_HEADER_DATA`（表头与数据之间）、`AFTER_DATA`（数据之后）。
 
@@ -266,7 +294,8 @@ public class MonthlyModel {
 ```
 
 ### `@ExcelHeaderColumnMapping`（方法）
-**导入**时提供动态「表头文本 → 字段名」映射（无参方法返回 `Map<String,String>`）。当 Excel 表头文本与字段不一一对应、或表头可能变化时使用。
+**导入**时提供动态「表头文本 → 字段名」映射（public 无参方法返回 `Map<String,String>`）。当 Excel **列顺序可能变化**、或表头文本与字段名不一致时使用：带 `Class` 的 `ExcelUtil.importExcel(...)` 会读取文件表头行，按表头文本把列**重排**对齐到字段（而非按位置），表头不在映射里的列自动跳过。表头行取数据起始行的上一行（`startRow - 1`，默认即第 0 行）。
+> 另一种「按表头名导入」是流式读 `StreamingExcelReader.readAsBeans(in, sheetIndex, T.class, /*matchByHeaderName*/ true)`（按 `@ExcelColumn(columnName)` 匹配，低内存只读）。
 
 ```java
 @ExcelInfo(sheetName = "导入")
@@ -662,6 +691,14 @@ ExcelTemplateFiller.of(templateInputStream)          // of(InputStream) / of(byt
 ```
 
 模板里：标量占位 `${reportDate}`；列表占位 `${list.no}`、`${list.name}`（同一行作为模板行，按列表展开）。
+
+> **资源释放**：`ExcelTemplateFiller` 实现了 `AutoCloseable`。用 `of(InputStream)` / `of(byte[])` 创建时它**自建并持有** workbook，建议放进 try-with-resources，`close()` 会关闭底层包/临时文件；用 `of(Workbook)` 传入时由**调用方**负责关闭，`close()` 不会动它。
+>
+> ```java
+> try (ExcelTemplateFiller filler = ExcelTemplateFiller.of(templateBytes)) {
+>     filler.fill("reportDate", "2024-06-01").writeTo(out);
+> }
+> ```
 
 ### 图片占位符
 

@@ -341,6 +341,10 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         }
 
         String[] header = new String[totalCells];
+        // Parallel to header[]: each physical column's @ExcelColumn#groups() ancestor path, for
+        // multi-level merged headers. Same merge-cell expansion as header[].
+        String[][] headerGroupsArr = new String[totalCells][];
+        int maxHeaderDepth = 0;
         Map<Integer, Integer> columnWidth = new HashMap<>();
         Map<Integer, String> columnMergeInfo = new HashMap<>();
         LinkedList<ExcelModel> excelModels = new LinkedList<>();
@@ -406,18 +410,25 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
             excelModel.setIndex(annotation.index());
             excelModel.setColumnName(columnName);
 
+            String[] grp = annotation.groups();
+            maxHeaderDepth = Math.max(maxHeaderDepth, grp.length);
+
             if (excelModel.getMergeCellIndex() > 1) {
                 int mci = excelModel.getMergeCellIndex();
                 boolean isFirst = true;
                 for (int i = 0; i < mci; i++) {
-                    header[count.getAndIncrement()] = columnName;
+                    int hidx = count.getAndIncrement();
+                    header[hidx] = columnName;
+                    headerGroupsArr[hidx] = grp;
                     ExcelModel clone = excelModel.copy();
                     if (!isFirst) clone.setMergeIndexEnd(true);
                     isFirst = false;
                     excelModels.add(clone);
                 }
             } else {
-                header[count.getAndIncrement()] = columnName;
+                int hidx = count.getAndIncrement();
+                header[hidx] = columnName;
+                headerGroupsArr[hidx] = grp;
                 excelModels.add(excelModel);
             }
 
@@ -454,6 +465,19 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
         info.mergeInfo = columnMergeInfo;
         info.columnWidthInfo = columnWidth;
         info.parentHeaders = parentHeaders.isEmpty() ? null : parentHeaders;
+        if (maxHeaderDepth > 0) {
+            if (!parentHeaders.isEmpty()) {
+                throw new ExcelAnnotationException(
+                        "@ExcelColumn(groups=...) (multi-level header) cannot be combined with "
+                                + "@ExcelColumnParent on the same model; use one mechanism or the other");
+            }
+            List<String[]> headerGroups = new ArrayList<>(headerGroupsArr.length);
+            for (String[] g : headerGroupsArr) {
+                headerGroups.add(g != null ? g : new String[0]);
+            }
+            info.headerGroups = headerGroups;
+            info.maxHeaderDepth = maxHeaderDepth;
+        }
         if (excelDataField != null) {
             excelDataField.setAccessible(true);
             info.excelData = Reflect.getField(excelDataField, this.excelInfo);
@@ -712,10 +736,26 @@ public class DefaultAnnotationProcessor implements AnnotationProcessor {
 
         private List<ExcelAnnotationProperty.ParentHeader> parentHeaders;
 
+        private List<String[]> headerGroups;
+
+        private int maxHeaderDepth;
+
         /** Returns the title text to render above the header row, or {@code null} if absent. */
         @Override
         public String getTitle() {
             return title;
+        }
+
+        /** Returns the per-column ancestor header paths for multi-level headers, or {@code null}. */
+        @Override
+        public List<String[]> getHeaderGroups() {
+            return headerGroups;
+        }
+
+        /** Returns the deepest {@code @ExcelColumn#groups()} length, or {@code 0}. */
+        @Override
+        public int getMaxHeaderDepth() {
+            return maxHeaderDepth;
         }
 
         /** Returns the ordered array of column header labels, one entry per logical column. */

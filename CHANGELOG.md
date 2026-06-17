@@ -7,6 +7,20 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `@ExcelHeaderColumnMapping` is now wired into class-based `ExcelUtil.importExcel(... Class)`: a
+  public no-arg method returning `Map<headerText, fieldName>` makes the DOM importer read the
+  file's header row (the row above the first data row) and re-order columns to match by header text
+  instead of by position — robust to column reordering and header labels that differ from field
+  names; columns whose header is not in the map are skipped. Previously the annotation was declared
+  but never read (it had no effect). When the mapping matches no header cell (wrong `startRow`, a
+  typo, or the wrong sheet) the import degrades to an empty result and logs a WARN naming the
+  header texts it read, instead of silently returning zero rows.
+- Multi-level (3+ row) merged headers via `@ExcelColumn(groups = {...})`: the array lists the
+  ancestor header labels top-most first, with the column's `columnName` as the leaf (bottom row).
+  Adjacent columns sharing an ancestor prefix merge horizontally at each level; a column with fewer
+  levels than the deepest has its leaf merged vertically down to the bottom row. Arbitrary depth is
+  supported (two-row headers can still use the simpler `@ExcelColumnParent`). Mutually exclusive
+  with `@ExcelColumnParent` on the same model (mixing throws `ExcelAnnotationException`); export-only.
 - `ExcelTemplateFiller` picture placeholders: `${@image:key}` anchors an image registered via
   the new `fillPicture(key, byte[]/File/InputStream/String URL)` over the placeholder cell, and
   `${list.@image:key}` inserts one image per expanded list row from the row map's value
@@ -84,6 +98,95 @@ All notable changes to this project are documented here. The format is based on
   it used to throw `IllegalArgumentException` for any non-String field. Unconvertible values
   skip the field instead of failing the whole mapping. The conversion table now lives in
   `CommonUtil.convert`, shared by `ExcelImportor.caseObject`.
+- Entity import (`ExcelImportor.getObject(sheet, clazz)`) hardening:
+  - all integral targets share one truncate-toward-zero rule via `BigDecimal` — `Long`,
+    `Short` and `Byte` used strict `valueOf`, so a fractional cell (`"3.5"`) that mapped to
+    `3` for an `Integer` field threw `NumberFormatException` and silently dropped the whole
+    row for a `Long`/`Short`/`Byte` field;
+  - a cell that overflows its target type (e.g. a 10-digit number in an `int` field) now skips
+    only that row instead of letting the `ArithmeticException` escape `getObject` and abort the
+    entire import — `getObject` catches per-row `RuntimeException` and logs it;
+  - a column's own `@ExcelDateFormat` pattern is tried first when re-parsing date/time fields,
+    so a value formatted with a non-standard pattern (e.g. `dd-MM-yyyy`) round-trips back to a
+    `Date` instead of becoming `null` (new `CommonUtil.parseDate(source, preferredPattern)` and
+    `convert(value, type, datePattern)` overloads);
+  - top-level `@ExcelColumn` fields now assign by setter first and fall back to direct field
+    assignment (matching the nested `@ExcelInfoChild` path), so a target class with public/
+    package-private fields and no setters still imports instead of leaving those columns null;
+  - the `Map`-result fast path used a reversed `clazz.isAssignableFrom(Map.class)` check
+    (corrected to `Map.class.isAssignableFrom(clazz)`).
+- Whole-codebase review follow-ups:
+  - `ExcelTemplateFiller` implements `AutoCloseable` and closes the workbook it created (via
+    `of(InputStream)`/`of(byte[])`) — it previously left the backing package/temp files open;
+    a workbook passed via `of(Workbook)` is still left open for the caller. Picture placeholder
+    `File` values now share the same guarded-fetch cache as `String` paths (one read per file).
+  - `StreamingExcelReader.readAsBeans` skips a single unmappable row (logged) instead of throwing
+    and aborting the whole stream, matching the DOM `ExcelImportor.getObject` behaviour.
+  - `ImageDownLoadTask.openGuardedStream` detects the `http`/`https` scheme case-insensitively, so
+    an upper-case `HTTP://` URL is no longer misrouted to the local-file branch.
+  - `ZipUtil.injectFiles` deletes the rebuilt temp archive if the final in-place move fails.
+  - `ExcelCreator.writeTemporal` no longer NPEs when used through the lightweight
+    `ExcelCreator(Workbook)` wrapper (null `styleManager`): the date style is built without the
+    base-style clone. A cell whose value cannot be written is left blank instead of stamped with
+    a literal `"ERROR"` (which would silently turn a numeric column cell to text).
+- Second review-sweep follow-ups:
+  - `CSVRow.getPhysicalNumberOfCells()` returns the real cell count instead of a hard-coded `0`
+    (POI contract), so a CSV sheet handed to generic POI code that iterates by physical count works.
+  - `ExcelModel.copy()` (the `mergeCellIndex > 1` column clone) is now a reflection-based shallow
+    copy of every non-static field, so a field added later can no longer be silently dropped from
+    merged-column clones; a regression test asserts field-by-field completeness.
+  - DOM import (`ExcelImportor(InputStream)`) buffers the stream once (was two full `toByteArray()`
+    copies) and closes the fully-consumed caller stream, matching `StreamingExcelReader`.
+  - Big-data (SXSSF) auto-size samples column widths during population (rows are still in the
+    streaming window then) and folds them into the post-hoc estimate, so columns are no longer
+    sized from only the last retained window after the rest were flushed. The DOM path is unchanged.
+  - `DefaultDataValidator.setFormula` looks a row up once instead of twice per formula row.
+- Export/picture-output review follow-ups:
+  - `DefaultExcelExporter` keeps the picture-injected temp file alive until `close()`, so
+    `export`/`upload`/`getInputStream`/`getWorkBook` are idempotent — a second call (or
+    `getInputStream` then `getWorkBook`) used to `NullPointerException` because the first call
+    deleted the temp file in its `finally`. The zip branches also guard against a missing temp
+    file, and `close()` removes it.
+  - The synchronous fallback in `DefaultPictureHandler.setPicture` embeds the original image bytes
+    in their actual format (sniffed via `PictureFormat`) instead of re-encoding every image to
+    JPEG, so PNG transparency and the source encoding survive; an image the workbook rejects
+    (e.g. GIF/BMP on HSSF) or that fails to download is skipped with a warning instead of
+    stamping `"Image download failed"` text into the cell.
+  - `DefaultExcelExporter.exportLocal` matches the extension case-insensitively and requires the
+    dot, so `report.XLSX` is no longer doubled to `report.XLSX.xlsx`.
+  - Temp-file/temp-dir deletions log at debug when a file cannot be removed (e.g. locked on
+    Windows) instead of silently ignoring the failure.
+- Multi-sheet / cascade review follow-ups:
+  - A multi-sheet export stitches the 2nd..Nth `ExcelCreator` into the first and only closes the
+    first, so the stitched children's `INSTANCE_COUNT` (taken once per creator at construction)
+    was never decremented — after any multi-sheet export the count never returned to zero and the
+    shared image-download thread pool's graceful shutdown never fired again (its non-daemon
+    threads then lingered up to their 1-minute idle timeout, delaying JVM exit). Stitched children
+    now drop their count when adopted, so the parent's `close()` can shut the pool down.
+  - `ValueExtractor.getValueByPath` skips empty path segments, so a stray/trailing dot no longer
+    reads a `""` property.
+  - `CascadeValidateModelBuilder.build()` returns a fresh model (with its own items list) each
+    call, so reusing one builder as a child of several options no longer aliases a single shared
+    mutable model.
+- Concurrency review follow-ups (shared image-download pool):
+  - `ExcelCreator.close()` no longer risks shutting the shared download pool down underneath a
+    concurrent export. The decrement-to-zero check is re-evaluated **under the class lock** (a
+    sibling export increments the count before it acquires the pool, so a count still at zero
+    under the lock means nobody is about to use it); the blocking `awaitTermination` drain now runs
+    **outside** the lock on a local reference, so a 30-second drain no longer stalls every
+    concurrent export trying to start (both `close()` and `getOrCreateExecutor` synchronize on the
+    same monitor). The pool field is nulled under the lock so a concurrent export immediately gets
+    a fresh pool.
+  - `configuredDownloadThreads` is `volatile`, so a `setDownloadThreadCount` from one thread is
+    visible to the pool sizing on another.
+- Class-based `ExcelUtil.importExcel(... Class<T> ...)` now honours the file-layout settings the
+  class declares via `@ExcelInfo`, so a workbook produced by exporting that class round-trips back
+  correctly: when `needOrder()` is set, the leading auto-sequence column(s) (one per
+  `orderColumnSpan()`) are skipped so the first data column is read from physical column
+  `orderColumnSpan` instead of column 0 (previously every field was read one position to the left,
+  with the sequence number landing in the first field); `@ExcelInfo.exceptColumnNum()` columns are
+  also skipped. Applies to all class-taking import overloads (including the listener form);
+  `importExcelToMap` (no class) is unchanged.
 - `ImageUtils.urlEncoder` percent-encodes every character a URL cannot legally carry (spaces,
   all non-ASCII blocks, quotes, ...) per RFC 3986 — it used to encode only the CJK basic block.
   Already-encoded `%XX` sequences and reserved characters pass through unchanged.

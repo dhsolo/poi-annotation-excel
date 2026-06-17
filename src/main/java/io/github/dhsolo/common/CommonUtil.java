@@ -92,10 +92,44 @@ public class CommonUtil {
      * @return the parsed {@link Date}, or {@code null} when nothing matches (logged as WARN)
      */
     public static Date parseDate(String source) {
+        return parseDate(source, null);
+    }
+
+    /**
+     * Parses a date string, trying {@code preferredPattern} first (when supplied) before the
+     * built-in patterns. The import pipeline passes the column's {@code @ExcelDateFormat}
+     * pattern here so a value that was formatted with a non-standard pattern (e.g.
+     * {@code dd-MM-yyyy}) round-trips back to a {@link Date} instead of silently becoming
+     * {@code null}.
+     *
+     * @param source          the date text; may be {@code null}
+     * @param preferredPattern a {@link SimpleDateFormat} pattern to try first; may be
+     *                         {@code null}/blank to use only the built-in patterns
+     * @return the parsed {@link Date}, or {@code null} when nothing matches (logged as WARN)
+     */
+    public static Date parseDate(String source, String preferredPattern) {
         if (source == null) return null;
         String trimmed = source.trim();
         if (trimmed.isEmpty()) return null;
+        if (preferredPattern != null && !preferredPattern.trim().isEmpty()) {
+            Date parsed = tryParse(trimmed, preferredPattern);
+            if (parsed != null) return parsed;
+        }
         for (String pattern : DATE_PATTERNS) {
+            Date parsed = tryParse(trimmed, pattern);
+            if (parsed != null) return parsed;
+        }
+        log.warn("Unable to parse date string '{}' with any of the known patterns", trimmed);
+        return null;
+    }
+
+    /**
+     * Strictly parses {@code trimmed} against a single {@code pattern}: the pattern must consume
+     * the whole string and field values must be in range. Returns {@code null} on any mismatch
+     * (including an invalid pattern string), so callers can simply try the next candidate.
+     */
+    private static Date tryParse(String trimmed, String pattern) {
+        try {
             SimpleDateFormat format = new SimpleDateFormat(pattern);
             format.setLenient(false);
             ParsePosition pos = new ParsePosition(0);
@@ -103,8 +137,9 @@ public class CommonUtil {
             if (parsed != null && pos.getIndex() == trimmed.length()) {
                 return parsed;
             }
+        } catch (IllegalArgumentException invalidPattern) {
+            // malformed pattern string; treat as a non-match and fall through to the next one
         }
-        log.warn("Unable to parse date string '{}' with any of the known patterns", trimmed);
         return null;
     }
 
@@ -123,6 +158,23 @@ public class CommonUtil {
      * @return the converted value, or {@code null} when not convertible
      */
     public static Object convert(Object value, Class<?> type) {
+        return convert(value, type, null);
+    }
+
+    /**
+     * Variant of {@link #convert(Object, Class)} that lets the caller supply the date pattern the
+     * value was originally formatted with, so date/time targets re-parse with that pattern first
+     * (see {@link #parseDate(String, String)}). All integral targets ({@code Integer}, {@code Long},
+     * {@code Short}, {@code Byte}, {@code BigInteger}) share the same truncate-toward-zero semantics
+     * via {@link #integerPart}, so a fractional cell maps consistently regardless of the field's
+     * integral type instead of one type truncating and another throwing.
+     *
+     * @param value       the raw value to convert; may be {@code null}
+     * @param type        the target type; may be {@code null} (returns {@code null})
+     * @param datePattern the preferred date pattern for date/time targets; may be {@code null}
+     * @return the converted value, or {@code null} when not convertible
+     */
+    public static Object convert(Object value, Class<?> type, String datePattern) {
         if (type == null || value == null || value.toString().trim().length() == 0)
             return null;
         Object result = null;
@@ -142,7 +194,7 @@ public class CommonUtil {
             break;
         case "java.lang.Long":
         case "long":
-            result = Long.valueOf(numVal);
+            result = integerPart(numVal).longValueExact();
             break;
         case "java.lang.Boolean":
         case "boolean":
@@ -154,18 +206,18 @@ public class CommonUtil {
             break;
         case "java.lang.Short":
         case "short":
-            result = Short.valueOf(numVal);
+            result = integerPart(numVal).shortValueExact();
             break;
         case "java.util.Date":
-            result = parseDate(value.toString());
+            result = parseDate(value.toString(), datePattern);
             break;
         case "java.sql.Timestamp": {
-            Date d = parseDate(value.toString());
+            Date d = parseDate(value.toString(), datePattern);
             result = d != null ? new java.sql.Timestamp(d.getTime()) : null;
             break;
         }
         case "java.sql.Date": {
-            Date d = parseDate(value.toString());
+            Date d = parseDate(value.toString(), datePattern);
             result = d != null ? new java.sql.Date(d.getTime()) : null;
             break;
         }
@@ -183,15 +235,15 @@ public class CommonUtil {
         }
         case "java.lang.Byte":
         case "byte":
-            result = Byte.valueOf(numVal);
+            result = integerPart(numVal).byteValueExact();
             break;
         case "java.time.LocalDate": {
-            Date d = parseDate(value.toString());
+            Date d = parseDate(value.toString(), datePattern);
             result = d != null ? d.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null;
             break;
         }
         case "java.time.LocalDateTime": {
-            Date d = parseDate(value.toString());
+            Date d = parseDate(value.toString(), datePattern);
             result = d != null ? d.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime() : null;
             break;
         }

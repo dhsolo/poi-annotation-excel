@@ -169,7 +169,7 @@ public class ImageDownLoadTask implements Runnable {
      */
     public static InputStream openGuardedStream(String url, int imageReadTimeOut) throws Exception {
         InputStream raw;
-        if (url.startsWith("http")) {
+        if (url.regionMatches(true, 0, "http", 0, 4)) {
             URL imgUrl = new URL(urlEncoder(url));
             String protocol = imgUrl.getProtocol();
             if (!"http".equalsIgnoreCase(protocol) && !"https".equalsIgnoreCase(protocol)) {

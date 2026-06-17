@@ -114,11 +114,17 @@ public class ExcelImportor {
 			if (outPut == null) {
 				throw new IOException("Failed to clone input stream; cannot read Excel file");
 			}
-			ByteArrayInputStream byteIn = new ByteArrayInputStream(outPut.toByteArray());
-			header = byteIn.readNBytes(8);
-			this.in = new ByteArrayInputStream(outPut.toByteArray());
+			// One copy of the buffered bytes feeds both the magic-number peek and the workbook,
+			// instead of materialising the whole file twice via two toByteArray() calls.
+			byte[] bytes = outPut.toByteArray();
+			header = Arrays.copyOf(bytes, Math.min(8, bytes.length));
+			this.in = new ByteArrayInputStream(bytes);
 		} catch (IOException e) {
 			logger.error("Failed to initialise ExcelImportor from input stream", e);
+		} finally {
+			// The stream has been fully buffered above; close it so the caller's resource is not leaked
+			// (mirrors StreamingExcelReader, which also consumes and closes the stream it is given).
+			try { in.close(); } catch (IOException ignored) {}
 		}
 
 		init();
@@ -482,7 +488,7 @@ public class ExcelImportor {
 	/**
 	 * Retrieves a value from the map by key.
 	 */
-	private void setByPath(Object bean, String path, Map<String, Object> map, String valueKey) {
+	private void setByPath(Object bean, String path, Map<String, Object> map, String valueKey, String datePattern) {
 		String[] parts = path.split("\\.");
 		Object cur = bean;
 		for (int i = 0; i < parts.length - 1; i++) {
@@ -503,7 +509,7 @@ public class ExcelImportor {
 		String leaf = parts[parts.length - 1];
 		Field lf = Reflect.findField(cur.getClass(), leaf);
 		if (lf == null) return;
-		Object value = getFromMap(map, valueKey, lf.getType());
+		Object value = getFromMap(map, valueKey, lf.getType(), datePattern);
 		if (value != null) setProp(cur, leaf, lf, value);
 	}
 
@@ -523,6 +529,10 @@ public class ExcelImportor {
 	}
 
 	private Object getFromMap(Map<?, ?> map, Object key, Class type) {
+		return getFromMap(map, key, type, null);
+	}
+
+	private Object getFromMap(Map<?, ?> map, Object key, Class type, String datePattern) {
 		Object value = null;
 		try {
 			if (map.containsKey(key)) {
@@ -542,7 +552,7 @@ public class ExcelImportor {
 			}
 		}
 		if (value != null && type != null)
-			value = caseObject(value, type);
+			value = caseObject(value, type, datePattern);
 		return value;
 	}
 
@@ -550,7 +560,11 @@ public class ExcelImportor {
 	 * Converts a value to the specified type.
 	 */
 	public Object caseObject(Object value, Class type) {
-		return CommonUtil.convert(value, type);
+		return caseObject(value, type, null);
+	}
+
+	public Object caseObject(Object value, Class type, String datePattern) {
+		return CommonUtil.convert(value, type, datePattern);
 	}
 
 	public Date dateHandle(String source){
@@ -577,7 +591,7 @@ public class ExcelImportor {
 		LinkedList<T> objets = new LinkedList<>();
 		if (sheetNum < datas.size()) {
 			LinkedList<Map<String, Object>> sheetData = datas.get(sheetNum);
-			if(clazz.isAssignableFrom(Map.class)) {
+			if(Map.class.isAssignableFrom(clazz)) {
 				return (List<T>) sheetData;
 			}
 			for (Map<String, Object> map : sheetData) {
@@ -587,20 +601,21 @@ public class ExcelImportor {
 					for (ExcelModel excelModel : listModels) {
 						String field = excelModel.getFieldName();
 						String sourcePath = excelModel.getSourcePath();
+						// Re-parse date/time targets with the column's own @ExcelDateFormat pattern first,
+						// so a value formatted with a non-standard pattern round-trips instead of becoming null.
+						String datePattern = excelModel.isDate() ? excelModel.getPattern() : null;
 						// Flattened @ExcelInfoChild column: rebuild the nested object via path (keyed by sourcePath).
 						if (excelModel.isFlattened() && sourcePath != null && sourcePath.contains(".")) {
-							setByPath(t, sourcePath, map, sourcePath);
+							setByPath(t, sourcePath, map, sourcePath, datePattern);
 							continue;
 						}
-						Field javaField =Reflect.findField(clazz,field) ;//clazz.getDeclaredField(field);
-						String setMethod = "set" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
-						if(javaField!=null){
-							Method method = Reflect.findMethod(clazz,setMethod,javaField.getType());//clazz.getDeclaredMethod(setMethod, javaField.getType());
-							if(method!=null){
-								Object value = getFromMap(map, field, javaField.getType());
-								if (value != null)
-									method.invoke(t, value);
-							}
+						Field javaField = Reflect.findField(clazz, field);
+						if (javaField != null) {
+							// Assign by setter first, then fall back to direct field assignment so target
+							// classes without setters (public/package-private fields) still import.
+							Object value = getFromMap(map, field, javaField.getType(), datePattern);
+							if (value != null)
+								setProp(t, field, javaField, value);
 						} else {
 							logger.debug("Field '{}' not found in {}; skipping column", field, clazz.getName());
 						}
@@ -612,6 +627,10 @@ public class ExcelImportor {
 					logger.error("Security or argument error mapping row to {}", clazz.getName(), e);
 				} catch (InvocationTargetException e) {
 					logger.error("Setter invocation failed while mapping row to {}", clazz.getName(), e);
+				} catch (RuntimeException e) {
+					// e.g. a numeric cell that overflows the target type: skip this row only, keeping
+					// the rest of the import alive instead of letting the exception abort everything.
+					logger.error("Failed to map a row to {}; row skipped", clazz.getName(), e);
 				}
 			}
 		}
@@ -906,5 +925,33 @@ public class ExcelImportor {
 	 */
 	public  Workbook getWorkbook(){
 		return  workbook;
+	}
+
+	/**
+	 * Returns the string values of every cell in the given row of the given sheet, indexed by
+	 * physical column (gaps and missing cells become empty strings). Used by class-based import to
+	 * read the header row for {@code @ExcelHeaderColumnMapping} header-name column matching.
+	 *
+	 * @param sheetIndex zero-based sheet index (matching {@link #addColumnName(int, LinkedList)})
+	 * @param rowIndex   zero-based row index to read (typically the header row)
+	 * @return the per-column header texts; empty when the sheet/row is absent
+	 */
+	public List<String> getRowValues(int sheetIndex, int rowIndex) {
+		List<String> values = new ArrayList<>();
+		if (sheetIndex < 0 || sheetIndex >= sheets.size()) return values;
+		Row headerRow = sheets.get(sheetIndex).getRow(rowIndex);
+		if (headerRow == null) return values;
+		int last = headerRow.getLastCellNum();
+		for (int c = 0; c < last; c++) {
+			Cell hc = headerRow.getCell(c);
+			Object v = null;
+			try {
+				if (hc != null) v = getCellValue(hc);
+			} catch (Exception e) {
+				logger.debug("Failed to read header cell at sheet {}, row {}, col {}", sheetIndex, rowIndex, c);
+			}
+			values.add(v == null ? "" : v.toString());
+		}
+		return values;
 	}
 }

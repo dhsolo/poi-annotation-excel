@@ -69,7 +69,7 @@ import java.util.regex.Pattern;
  * @author dhsolo
  * @since 1.0
  */
-public class ExcelTemplateFiller {
+public class ExcelTemplateFiller implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(ExcelTemplateFiller.class);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
@@ -80,6 +80,8 @@ public class ExcelTemplateFiller {
     private static final int MAX_PARALLEL_DOWNLOADS = 8;
 
     private final Workbook workbook;
+    /** True when this filler created the workbook (via {@code of(InputStream/byte[])}) and must close it. */
+    private final boolean ownsWorkbook;
     private final Map<String, Object> context = new LinkedHashMap<>();
     private final Map<String, List<Map<String, Object>>> listContext = new LinkedHashMap<>();
     private final Map<String, Object> pictureContext = new LinkedHashMap<>();
@@ -93,13 +95,14 @@ public class ExcelTemplateFiller {
     private int imageReadTimeOut = DEFAULT_IMAGE_READ_TIME_OUT;
     private Pattern imagesSeparatorPattern = Pattern.compile(",");
 
-    private ExcelTemplateFiller(Workbook workbook) {
+    private ExcelTemplateFiller(Workbook workbook, boolean ownsWorkbook) {
         this.workbook = workbook;
+        this.ownsWorkbook = ownsWorkbook;
     }
 
     /** Creates a filler from an XLSX template input stream. */
     public static ExcelTemplateFiller of(InputStream templateStream) throws IOException {
-        return new ExcelTemplateFiller(new XSSFWorkbook(templateStream));
+        return new ExcelTemplateFiller(new XSSFWorkbook(templateStream), true);
     }
 
     /**
@@ -114,9 +117,10 @@ public class ExcelTemplateFiller {
         return of(new ByteArrayInputStream(template));
     }
 
-    /** Creates a filler from any existing {@link Workbook} instance. */
+    /** Creates a filler from any existing {@link Workbook} instance. The caller keeps ownership
+     * of the workbook; {@link #close()} will not close it. */
     public static ExcelTemplateFiller of(Workbook workbook) {
-        return new ExcelTemplateFiller(workbook);
+        return new ExcelTemplateFiller(workbook, false);
     }
 
     /** Adds a single key-value pair to the fill context. */
@@ -283,6 +287,19 @@ public class ExcelTemplateFiller {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         writeTo(baos);
         return baos.toByteArray();
+    }
+
+    /**
+     * Closes the underlying workbook when this filler created it (via {@code of(InputStream)} or
+     * {@code of(byte[])}), releasing its backing package/temp files. A workbook passed in through
+     * {@link #of(Workbook)} is left open — the caller owns its lifecycle. Safe to call more than
+     * once.
+     */
+    @Override
+    public void close() throws IOException {
+        if (ownsWorkbook) {
+            workbook.close();
+        }
     }
 
     private void processSheet(Sheet sheet) {
@@ -461,13 +478,11 @@ public class ExcelTemplateFiller {
             if (value == null) return null;
             if (value instanceof byte[] bytes) return bytes.length > 0 ? bytes : null;
             if (value instanceof File file) {
-                // cached like URL downloads: the same File across a thousand list rows
-                // is read from disk once
-                String cacheKey = file.getAbsolutePath();
-                if (downloadCache.containsKey(cacheKey)) return downloadCache.get(cacheKey);
-                byte[] data = Files.readAllBytes(file.toPath());
-                downloadCache.put(cacheKey, data);
-                return data;
+                // Route through the same guarded fetch/cache as String paths (its local-file
+                // branch reads the file with the size cap), keyed by the absolute path, so the
+                // same File across a thousand list rows is read from disk once and a File and a
+                // String path pointing at the same file share one cache entry.
+                return downloadImage(file.getAbsolutePath(), name);
             }
             if (value instanceof InputStream in) return in.readAllBytes();
         } catch (IOException e) {

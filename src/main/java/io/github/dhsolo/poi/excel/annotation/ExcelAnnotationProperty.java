@@ -144,6 +144,25 @@ public interface ExcelAnnotationProperty {
     default List<ParentHeader> getParentHeaders() { return null; }
 
     /**
+     * Returns the ancestor header path for each data column (parallel to {@link #getHeader()},
+     * same merge-cell expansion), for multi-level merged headers declared via
+     * {@code @ExcelColumn#groups()}. Each element is the column's groups array (top-most first);
+     * an empty array means the column has no ancestor groups. Returns {@code null} when no column
+     * declares groups.
+     *
+     * @return per-column ancestor header paths, or {@code null}
+     */
+    default List<String[]> getHeaderGroups() { return null; }
+
+    /**
+     * Returns the deepest {@code @ExcelColumn#groups()} length across all columns (the number of
+     * group header rows above the leaf header row); {@code 0} when no column declares groups.
+     *
+     * @return the maximum header group depth
+     */
+    default int getMaxHeaderDepth() { return 0; }
+
+    /**
      * A grouped (parent) header cell spanning a contiguous range of data columns.
      *
      * @param label    the parent header text

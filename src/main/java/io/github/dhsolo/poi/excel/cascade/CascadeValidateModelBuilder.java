@@ -133,8 +133,13 @@ public class CascadeValidateModelBuilder {
      * @return the completed cascade validate model
      */
     public CascadeValidateModel build() {
-        cascadeValidateModel.setItems(items);
-        return cascadeValidateModel;
+        // Return a fresh model (with its own items list) each call so that reusing one builder as
+        // a child of several items does not alias a single shared, mutable model instance.
+        CascadeValidateModel built = new CascadeValidateModel();
+        built.setFieldName(cascadeValidateModel.getFieldName());
+        built.setNeedAddTranslationException(cascadeValidateModel.isNeedAddTranslationException());
+        built.setItems(items == null ? null : new ArrayList<>(items));
+        return built;
     }
 
     /**
