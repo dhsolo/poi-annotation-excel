@@ -42,7 +42,8 @@ import java.io.IOException;
 public class BusinessSXSSFSheet extends SXSSFSheet {
 
     /** The highest row index written to this sheet so far. */
-    private int lastRowNum;
+    /** Highest row index seen; -1 while the sheet is empty (POI contract). */
+    private int lastRowNum = -1;
 
     /**
      * Creates a streaming sheet backed by the given {@link XSSFSheet}.

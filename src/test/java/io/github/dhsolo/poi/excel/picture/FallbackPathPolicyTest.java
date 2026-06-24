@@ -56,7 +56,9 @@ class FallbackPathPolicyTest {
             int extra = handler.setPicture(0, 0, 0, 0, "http://127.0.0.1/x.png", cell);
 
             assertThat(extra).isEqualTo(0);
-            assertThat(cell.getStringCellValue()).isEqualTo("Image download failed");
+            // Blocked image is skipped (logged) and no picture is embedded; the cell is left blank
+            // rather than stamped with error text.
+            assertThat(cell.getStringCellValue()).isEmpty();
             assertThat(wb.getAllPictures()).isEmpty();
         }
     }

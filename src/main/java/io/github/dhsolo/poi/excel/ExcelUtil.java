@@ -21,10 +21,14 @@ import io.github.dhsolo.poi.excel.export.ExcelUploader;
 import io.github.dhsolo.poi.excel.importor.ExcelImportor;
 import io.github.dhsolo.poi.excel.importor.ExcelReadListener;
 import io.github.dhsolo.poi.excel.annotation.ExcelColumn;
+import io.github.dhsolo.poi.excel.annotation.ExcelHeaderColumnMapping;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -78,6 +82,8 @@ import java.util.function.Consumer;
  * @since 1.0
  */
 public class ExcelUtil {
+
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(ExcelUtil.class);
 
     // ==================== Export: annotation model ====================
 
@@ -453,7 +459,11 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
+        LinkedList<ExcelModel> models = resolveColumns(clazz, columns);
+        importor.addColumnName(sheetIndex, models);
+        if (!applyHeaderColumnMapping(importor, sheetIndex, clazz, models, 0)) {
+            applyClassImportLayout(importor, sheetIndex, clazz);
+        }
         boolean ok = importor.analysisExcel();
         if (!ok) {
             throw new IllegalStateException("Excel parsing failed: " + importor.getErrorMessage());
@@ -523,7 +533,11 @@ public class ExcelUtil {
      */
     public static <T> List<T> importExcel(InputStream in, int sheetIndex, int startRow, Class<T> clazz, ExcelModel... columns) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(sheetIndex, resolveColumns(clazz, columns));
+        LinkedList<ExcelModel> models = resolveColumns(clazz, columns);
+        importor.addColumnName(sheetIndex, models);
+        if (!applyHeaderColumnMapping(importor, sheetIndex, clazz, models, Math.max(0, startRow - 1))) {
+            applyClassImportLayout(importor, sheetIndex, clazz);
+        }
         importor.setStartRow(startRow);
         boolean ok = importor.analysisExcel();
         if (!ok) {
@@ -604,7 +618,11 @@ public class ExcelUtil {
      */
     public static <T> void importExcel(InputStream in, Class<T> clazz, ExcelReadListener listener) {
         ExcelImportor importor = new ExcelImportor(in);
-        importor.addColumnName(resolveColumns(clazz, new ExcelModel[0]));
+        LinkedList<ExcelModel> models = resolveColumns(clazz, new ExcelModel[0]);
+        importor.addColumnName(models);
+        if (!applyHeaderColumnMapping(importor, 0, clazz, models, 0)) {
+            applyClassImportLayout(importor, 0, clazz);
+        }
         importor.setReadListener(listener);
         importor.analysisExcel(false);
     }
@@ -655,5 +673,105 @@ public class ExcelUtil {
                     "Class " + clazz.getName() + " has no @ExcelColumn fields to derive column mapping");
         }
         return new LinkedList<>(models);
+    }
+
+    /**
+     * Applies the file-layout facts the class declares via {@link ExcelInfo} so that positional
+     * column mapping during import lines up with what the same class produces on export:
+     * <ul>
+     *   <li>{@link ExcelInfo#needOrder()} — the export prepends an auto-sequence column (spanning
+     *       {@link ExcelInfo#orderColumnSpan()} physical columns), which is not an {@code @ExcelColumn}
+     *       field; those leading columns are skipped so data columns map to the column models
+     *       (i.e. the first data column is read from physical column {@code orderColumnSpan}, not 0);</li>
+     *   <li>{@link ExcelInfo#exceptColumnNum()} — any additional physical columns to skip.</li>
+     * </ul>
+     * No-op when {@code clazz} is not annotated with {@code @ExcelInfo} (e.g. the explicit-columns
+     * form against a plain POJO).
+     */
+    private static void applyClassImportLayout(ExcelImportor importor, int sheetIndex, Class<?> clazz) {
+        ExcelInfo info = clazz.getAnnotation(ExcelInfo.class);
+        if (info == null) return;
+        List<Integer> except = new LinkedList<>();
+        int leading = info.needOrder() ? Math.max(1, info.orderColumnSpan()) : 0;
+        for (int i = 0; i < leading; i++) {
+            except.add(i);
+        }
+        for (int c : info.exceptColumnNum()) {
+            if (c >= 0 && !except.contains(c)) except.add(c);
+        }
+        if (!except.isEmpty()) {
+            importor.addExceptColumnNums(sheetIndex, except);
+        }
+    }
+
+    /**
+     * Applies an {@code @ExcelHeaderColumnMapping} method (if the class declares one): reads the
+     * file's header row and re-orders the resolved column models to match the physical columns by
+     * header text, so import works regardless of the file's column order and when header labels
+     * differ from field names. Columns whose header text is not in the mapping are skipped.
+     *
+     * @return {@code true} when a mapping was found and applied (the caller should then skip the
+     *         position-based {@link #applyClassImportLayout}); {@code false} otherwise
+     */
+    @SuppressWarnings("unchecked")
+    private static boolean applyHeaderColumnMapping(ExcelImportor importor, int sheetIndex, Class<?> clazz,
+                                                    LinkedList<ExcelModel> models, int headerRowIndex) {
+        Method mapMethod = null;
+        for (Method m : clazz.getMethods()) {
+            if (m.isAnnotationPresent(ExcelHeaderColumnMapping.class)
+                    && m.getParameterCount() == 0 && Map.class.isAssignableFrom(m.getReturnType())) {
+                mapMethod = m;
+                break;
+            }
+        }
+        if (mapMethod == null) return false;
+
+        Map<String, String> headerToField;
+        try {
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            mapMethod.setAccessible(true);
+            headerToField = (Map<String, String>) mapMethod.invoke(instance);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException(
+                    "Cannot invoke @ExcelHeaderColumnMapping method on " + clazz.getName()
+                            + " (it must be a public no-arg method returning Map<String,String>)", e);
+        }
+        if (headerToField == null || headerToField.isEmpty()) return false;
+
+        // header text (trimmed) -> field name
+        Map<String, String> normalized = new HashMap<>();
+        headerToField.forEach((k, v) -> { if (k != null && v != null) normalized.put(k.trim(), v); });
+        // field name -> column model
+        Map<String, ExcelModel> byField = new HashMap<>();
+        for (ExcelModel m : models) {
+            if (m.getFieldName() != null) byField.putIfAbsent(m.getFieldName(), m);
+        }
+
+        List<String> headerValues = importor.getRowValues(sheetIndex, headerRowIndex);
+        LinkedList<ExcelModel> ordered = new LinkedList<>();
+        List<Integer> exceptCols = new ArrayList<>();
+        for (int c = 0; c < headerValues.size(); c++) {
+            String text = headerValues.get(c) == null ? "" : headerValues.get(c).trim();
+            ExcelModel model = byField.get(normalized.get(text));
+            if (model != null) {
+                ordered.add(model);
+            } else {
+                exceptCols.add(c); // unknown/unmapped physical column: skip it
+            }
+        }
+        importor.addColumnName(sheetIndex, ordered);
+        if (!exceptCols.isEmpty()) {
+            importor.addExceptColumnNums(sheetIndex, exceptCols);
+        }
+        if (ordered.isEmpty()) {
+            // No header cell matched the mapping: almost always a misconfiguration (wrong startRow
+            // so a non-header row was read, a typo in the map keys, or the wrong sheet). Warn loudly
+            // instead of silently returning zero rows.
+            logger.warn("@ExcelHeaderColumnMapping on {} matched no columns in the header row "
+                    + "(sheet {}, header row {}); header texts were {}. Import will yield no data — "
+                    + "check the mapping keys and the startRow.",
+                    clazz.getName(), sheetIndex, headerRowIndex, headerValues);
+        }
+        return true;
     }
 }

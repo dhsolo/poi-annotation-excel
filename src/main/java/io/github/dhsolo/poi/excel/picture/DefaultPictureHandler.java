@@ -25,8 +25,6 @@ import org.apache.poi.ss.usermodel.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -435,8 +433,6 @@ public class DefaultPictureHandler implements PictureHandler {
         if (imageUrl == null || imageUrl.trim().length() == 0) {
             return 0;
         }
-        ByteArrayOutputStream byteArrayOut = new ByteArrayOutputStream();
-        BufferedImage bufferImg;
         String[] imageArray = imagesSeparatorPattern.split(imageUrl);
         int count = 0;
         for (String s : imageArray) {
@@ -454,24 +450,30 @@ public class DefaultPictureHandler implements PictureHandler {
             if (pictureDirCreate && hasPicture) {
                 i = imageNum.getAndIncrement();
             } else {
-                try {
-                    byteArrayOut.reset();
-                    // Same guards as the async path: protocol whitelist, ImageDownloadPolicy
-                    // (SSRF), timeouts and the size cap — this fallback used to bypass them all.
-                    try (java.io.InputStream is = ImageDownLoadTask.openGuardedStream(s, imageReadTimeOut)) {
-                        bufferImg = ImageIO.read(ImageIO.createImageInputStream(is));
-                    }
-                    if (bufferImg == null) {
-                        continue;
-                    }
-                    ImageIO.write(bufferImg, "jpg", byteArrayOut);
-                    bufferImg.flush();
+                byte[] imgBytes;
+                // Same guards as the async path: protocol whitelist, ImageDownloadPolicy
+                // (SSRF), timeouts and the size cap — this fallback used to bypass them all.
+                try (java.io.InputStream is = ImageDownLoadTask.openGuardedStream(s, imageReadTimeOut)) {
+                    imgBytes = is.readAllBytes();
                 } catch (Exception e) {
-                    logger.error("Image download failed");
-                    cell.setCellValue("Image download failed");
+                    // Skip this image with a warning; do not stamp error text into the cell.
+                    logger.warn("Image download failed, skipped: {}", s, e);
                     continue;
                 }
-                i = book.addPicture(byteArrayOut.toByteArray(), Workbook.PICTURE_TYPE_JPEG);
+                // Embed the original bytes in their actual format (preserving PNG transparency and
+                // the source encoding) instead of re-encoding every image to JPEG.
+                PictureFormat format = PictureFormat.sniff(imgBytes);
+                if (format == null) {
+                    logger.warn("Unrecognized image format, skipped: {}", s);
+                    continue;
+                }
+                try {
+                    i = book.addPicture(imgBytes, format.poiPictureType());
+                } catch (RuntimeException e) {
+                    // e.g. HSSF (.xls) rejects GIF/BMP type constants — skip rather than abort.
+                    logger.warn("Workbook rejected image, skipped: {}", s, e);
+                    continue;
+                }
             }
             drawing.createPicture(anchor, i);
             count++;
@@ -549,7 +551,11 @@ public class DefaultPictureHandler implements PictureHandler {
         try (var stream = Files.walk(dir)) {
             stream.sorted(java.util.Comparator.reverseOrder())
                   .map(Path::toFile)
-                  .forEach(File::delete);
+                  .forEach(f -> {
+                      if (!f.delete() && f.exists()) {
+                          logger.debug("Could not delete {}", f.getAbsolutePath());
+                      }
+                  });
         }
     }
 }

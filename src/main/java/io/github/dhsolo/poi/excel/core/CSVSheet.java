@@ -86,9 +86,8 @@ public class CSVSheet implements Sheet {
         String charset = detector.getDetectedCharset();
         log.info("CSV charset:{},read",charset);
         in = new ByteArrayInputStream(b);
-        CSVReader csvReader = new CSVReader(new InputStreamReader(in, charset != null ? charset : "UTF-8"));
         List<String[]> rowsList;
-        try {
+        try (CSVReader csvReader = new CSVReader(new InputStreamReader(in, charset != null ? charset : "UTF-8"))) {
             rowsList = csvReader.readAll();
         } catch (CsvException e) {
             throw new IOException("CSV parsing failed", e);
@@ -116,18 +115,19 @@ public class CSVSheet implements Sheet {
      * Returns the row at the given zero-based index.
      *
      * @param rownum the zero-based row index
-     * @return the {@link CSVRow} at {@code rownum}
-     * @throws IndexOutOfBoundsException if {@code rownum} is out of range
+     * @return the row at {@code rownum}, or {@code null} when out of range (POI contract)
      */
     @Override
     public Row getRow(int rownum) {
+        if (rownum < 0 || rownum >= rows.size()) {
+            return null;
+        }
         return rows.get(rownum);
     }
 
-    /** Not supported for CSV format. */
     @Override
     public int getPhysicalNumberOfRows() {
-        return 0;
+        return rows.size();
     }
 
     /**
@@ -257,7 +257,7 @@ public class CSVSheet implements Sheet {
 
     @Override
     public Iterator<Row> rowIterator() {
-        return null;
+        return rows.iterator();
     }
 
     @Override
@@ -595,7 +595,7 @@ public class CSVSheet implements Sheet {
 
     @Override
     public String getSheetName() {
-        return "";
+        return "CSV";
     }
 
     @Override
@@ -655,7 +655,7 @@ public class CSVSheet implements Sheet {
 
     @Override
     public Iterator<Row> iterator() {
-        return null;
+        return rowIterator();
     }
 
     @Override

@@ -69,6 +69,7 @@ public interface ValueExtractor {
         Object current = data;
         for (var part : parts) {
             if (current == null) return null;
+            if (part.isEmpty()) continue; // tolerate a stray/trailing dot instead of reading a "" property
             current = getValue(part, current);
         }
         return current;

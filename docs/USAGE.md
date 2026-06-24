@@ -55,6 +55,11 @@ ExcelUtil.export(response.getOutputStream(), "设备列表.xlsx",
 List<DeviceExportModel> rows = ExcelUtil.importExcel(inputStream, DeviceExportModel.class);
 ```
 
+> **布局自动对齐**：凡是传 `Class` 的 `importExcel` 重载都会读取该类的 `@ExcelInfo` 来对齐列位——
+> 若导出时设了 `needOrder = true`，文件最前面有「序号」列（占 `orderColumnSpan` 个物理列），导入会**自动跳过**它，
+> 数据列从第 `orderColumnSpan` 个物理列开始映射（不会把序号读进第一个字段）；`@ExcelInfo.exceptColumnNum` 指定的列也会跳过。
+> 因此「用同一个注解模型导出再导入」可以无缝往返。（`importExcelToMap` 不传 class，需自行处理序号列。）
+
 ---
 
 ## 2. 注解参考（全属性）
@@ -248,6 +253,29 @@ private Object sales;   // 锚点字段；值来自行对象的 getQ1()/getQ2()
 ```
 > 非分组列（含序号列）会纵向合并跨两行表头、标题居中显示（无序号列或单列序号时）；仅导出。
 
+### `@ExcelColumn(groups = {...})`（字段）—— 三级及以上多级表头
+两行表头用上面的 `@ExcelColumnParent` 即可；**三级或更多层**用 `@ExcelColumn` 的 `groups`：数组按**从上到下**列出各级父标题，列自身的 `columnName` 是最底行（叶子）。相邻列共享相同的上级前缀时在该层**横向合并**；层数比最深列少的列，其叶子会**纵向合并**到最底行。深度任意。
+
+```java
+@ExcelColumn(columnName = "门店", index = 1)                              private String store;   // 无 groups → 跨满整列表头
+@ExcelColumn(columnName = "Q1", index = 2, groups = {"2024年", "上半年"}) private Integer q1;
+@ExcelColumn(columnName = "Q2", index = 3, groups = {"2024年", "上半年"}) private Integer q2;
+@ExcelColumn(columnName = "Q3", index = 4, groups = {"2024年", "下半年"}) private Integer q3;
+@ExcelColumn(columnName = "Q4", index = 5, groups = {"2024年", "下半年"}) private Integer q4;
+```
+生成：
+```
+┌──────┬───────────────────────────┐
+│      │           2024年           │   ← groups[0]（横向合并 Q1~Q4）
+│ 门店 ├─────────────┬─────────────┤
+│      │    上半年    │    下半年    │   ← groups[1]
+│      ├──────┬──────┼──────┬──────┤
+│      │  Q1  │  Q2  │  Q3  │  Q4  │   ← columnName（叶子）
+└──────┴──────┴──────┴──────┴──────┘
+```
+再加一层只需把 `groups` 写成 `{"公司","2024年","上半年"}`（四行表头），以此类推。
+> 约束：`groups` 与 `@ExcelColumnParent` **不能在同一个模型混用**（混用会在解析期抛 `ExcelAnnotationException`）；同 `@ExcelColumnParent` 一样**仅导出**。导入时把多行表头当作要跳过的行（用 `startRow` 指到首个数据行），子列按位置映射。
+
 ### `@ExcelContext`（字段或方法）
 在 Sheet 指定位置注入额外的上下文行。`type` 取 `ContextType`：`BEFORE_TITLE`（标题前）、`BETWEEN_TITLE_HEADER`（标题与表头之间）、`BETWEEN_HEADER_DATA`（表头与数据之间）、`AFTER_DATA`（数据之后）。
 
@@ -266,7 +294,8 @@ public class MonthlyModel {
 ```
 
 ### `@ExcelHeaderColumnMapping`（方法）
-**导入**时提供动态「表头文本 → 字段名」映射（无参方法返回 `Map<String,String>`）。当 Excel 表头文本与字段不一一对应、或表头可能变化时使用。
+**导入**时提供动态「表头文本 → 字段名」映射（public 无参方法返回 `Map<String,String>`）。当 Excel **列顺序可能变化**、或表头文本与字段名不一致时使用：带 `Class` 的 `ExcelUtil.importExcel(...)` 会读取文件表头行，按表头文本把列**重排**对齐到字段（而非按位置），表头不在映射里的列自动跳过。表头行取数据起始行的上一行（`startRow - 1`，默认即第 0 行）。
+> 另一种「按表头名导入」是流式读 `StreamingExcelReader.readAsBeans(in, sheetIndex, T.class, /*matchByHeaderName*/ true)`（按 `@ExcelColumn(columnName)` 匹配，低内存只读）。
 
 ```java
 @ExcelInfo(sheetName = "导入")
@@ -530,7 +559,7 @@ ExcelUtil.importExcel(in, DeviceImportModel.class, new ExcelReadListener() {
 > **导入目标类要求**：无参构造器 + 各列字段的 **public setter**（框架按字段名 `setXxx(类型)` 注入；缺 setter 的列会被静默跳过、保持默认值）。
 
 ### 支持的导入类型
-`String`、全部基本类型及其包装类、`BigDecimal`、`BigInteger`、`java.util.Date`、`java.sql.Date`、`java.sql.Timestamp`、`java.time.LocalDate`、`java.time.LocalDateTime`。数值容忍千分位（`"1,234,567"`）；日期容忍九种常见格式（ISO-8601、`yyyy-MM-dd HH:mm:ss`、`yyyy/MM/dd`、`yyyyMMdd` 等）。
+`String`、全部基本类型及其包装类、`BigDecimal`、`BigInteger`、`java.util.Date`、`java.sql.Date`、`java.sql.Timestamp`、`java.time.LocalDate`、`java.time.LocalDateTime`。数值容忍千分位（`"1,234,567"`）；小数文本转整数类型按**截尾**处理（`"123.99"` → 123，科学计数法精确展开）。日期容忍十二种常见格式（ISO-8601、`yyyy-MM-dd HH:mm:ss[.SSS]`、`yyyy-MM-dd HH:mm`、`yyyy/MM/dd`、`yyyyMMdd` 等），解析为**严格模式**：模式必须吃完整个字符串（日期模式不会吞掉尾部时间）、字段值必须在合法范围（`2024-99-99` 拒绝而非回绕）；全部模式都不匹配时返回 null 并打 WARN。
 
 ---
 
@@ -643,7 +672,9 @@ private String total;
 
 ## 12. 模板填充 ExcelTemplateFiller
 
-> **图片说明**：模板中已有的静态图片会原样保留；列表行扩展时，列表区**下方**的图片锚点会随插入的行数一起下移（不会压到数据上）。暂不支持用占位符动态插入图片（计划中，见 issue #5）。
+> **图片说明**：模板中已有的静态图片会原样保留；列表行扩展时，列表区**下方**的图片锚点会随插入的行数一起下移（不会压到数据上）。
+>
+> **列表区域说明**：每个 listKey 只识别**第一处**含 `${listKey.*}` 占位符的模板行；同一 key 在多处出现时，后续占位行不会展开。需要多个列表区域时请使用不同的 listKey。
 
 
 对已有模板做 `${占位符}` 替换（不依赖注解）：
@@ -655,10 +686,31 @@ ExcelTemplateFiller.of(templateInputStream)          // of(InputStream) / of(byt
     .fillBean(reportHeader)                          // 用 Bean 的字段填充同名占位符
     .fillList("list", rowsAsMaps)                    // 列表区：${list.no} ${list.name}
     .fillListBeans("list", rowBeans)                 // 列表区（POJO）
+    .fillPicture("logo", logoBytes)                  // 图片占位：${@image:logo}（byte[]/File/InputStream）
     .writeTo(response.getOutputStream());            // 或 .toBytes()
 ```
 
 模板里：标量占位 `${reportDate}`；列表占位 `${list.no}`、`${list.name}`（同一行作为模板行，按列表展开）。
+
+> **资源释放**：`ExcelTemplateFiller` 实现了 `AutoCloseable`。用 `of(InputStream)` / `of(byte[])` 创建时它**自建并持有** workbook，建议放进 try-with-resources，`close()` 会关闭底层包/临时文件；用 `of(Workbook)` 传入时由**调用方**负责关闭，`close()` 不会动它。
+>
+> ```java
+> try (ExcelTemplateFiller filler = ExcelTemplateFiller.of(templateBytes)) {
+>     filler.fill("reportDate", "2024-06-01").writeTo(out);
+> }
+> ```
+
+### 图片占位符
+
+- **标量图片** `${@image:logo}`：配合 `fillPicture("logo", 图片)` 注册，支持 `byte[]` / `File` / `InputStream`（流会被读完但不关闭）/ **`String` URL 或本地路径**。填充时清空该单元格文本，图片以**覆盖该单元格的双锚点**插入（随行列移动缩放）；占位格在列表区下方时随扩行一起下移。
+- **列表行图片** `${list.@image:photo}`：图片值直接放在行数据 Map 的 `photo` 键里（同样支持 `byte[]` / `File` / `InputStream` / `String` URL；`fillListBeans` 的 `byte[]`/`String` 字段天然可用），每行各插一张。
+- **URL 下载**：`String` 值按 `http`/`https` URL 下载（非 `http` 开头按本地路径读），走与图片导出**同一套守卫**——协议白名单、`ImageDownloadPolicy`（SSRF，见第 14 节）、读超时（`imageReadTimeOut(毫秒)` 链式设置，默认 2000ms）、单图 64 MB 上限。模板中所有不同的图片 URL 在填充前**并行预下载**（≤8 线程）；**同一 URL 只下载一次**（失败也只试一次）、同一 `File` 只读一次磁盘，**内容相同的图片**（无论来源是 byte[]/File/URL）多处锚定共享**一个媒体部件**（不撑大文件）。下载失败仅清空占位 + WARN，不中断填充。
+- **多图分隔符**：`String` 值可含**多个** URL/路径，按 `imagesSeparator(分隔符)` 切分（默认 `","`，按正则编译——`|` 等元字符需转义为 `"\\|"`，与导出侧 `imagesSeparator` 同约定）。多张图从占位格起**逐列向右**各占一格锚定；下载失败的那张不占列位（后面的图左移补齐，同导出行为）；同一单元格里多个图片占位符也按此规则**连续向右**排，不会重叠。
+- **列表行内的标量图片**：列表模板行里也可以放 `${@image:key}`（非 `listKey.` 前缀）——它会随行复制，扩出的**每一行**都插入该图。无法解析的图片占位（如 listKey 未注册）会被清空并打 WARN，不会把 `${...}` 原文留在表里。
+- **非 XLSX 模板**：`of(Workbook)` 传入 HSSF（.xls）时 GIF/BMP 不被 POI 支持，该图按"跳过 + WARN"处理，不会中断填充。
+- 图片**格式按字节嗅探**（PNG/JPEG/GIF/BMP）原样嵌入，不转码（PNG 透明度保留）。未注册的 key、`null` 值或无法识别的字节：仅清空占位文本、跳过插图并打 WARN 日志，不中断填充。
+- 同一单元格可混排图片与文本占位：`${@image:logo}${title}` 会插图并保留 `title` 的文本替换。
+- 图片大小由锚点决定（铺满占位单元格），需要更大的展示区域时请在模板里调大该行高/列宽。
 
 ---
 

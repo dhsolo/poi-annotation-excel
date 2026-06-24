@@ -126,44 +126,59 @@ public class CSVRow implements Row {
      * Returns the cell at the given zero-based column index.
      *
      * @param cellnum the zero-based column index
-     * @return the {@link CSVCell} at {@code cellnum}
-     * @throws IndexOutOfBoundsException if {@code cellnum} is out of range
+     * @return the {@link CSVCell} at {@code cellnum}, or {@code null} when out of range
+     *         (POI contract — out-of-range lookups do not throw)
      */
     @Override
     public Cell getCell(int cellnum) {
+        if (cellnum < 0 || cellnum >= cells.size()) {
+            return null;
+        }
         return cells.get(cellnum);
     }
 
-    /** Not supported for CSV format. */
+    /**
+     * Returns the cell at the given index, honouring the POI missing-cell policy. CSV cells
+     * are always {@code STRING}-typed, so "blank" means an empty string value here; the cell
+     * created for {@code CREATE_NULL_AS_BLANK} is a detached empty {@link CSVCell} (the
+     * read-only CSV row itself is not modified).
+     */
     @Override
     public Cell getCell(int cellnum, MissingCellPolicy policy) {
-        return null;
+        Cell cell = getCell(cellnum);
+        if (policy == MissingCellPolicy.CREATE_NULL_AS_BLANK) {
+            return cell != null ? cell : new CSVCell("", this, cellnum);
+        }
+        if (policy == MissingCellPolicy.RETURN_BLANK_AS_NULL) {
+            return cell != null && !cell.getStringCellValue().isEmpty() ? cell : null;
+        }
+        return cell;
     }
 
     /**
-     * Returns {@code 0}; CSV rows always start from the first column.
-     *
-     * @return {@code 0}
+     * Returns {@code 0} (CSV rows start from the first column), or {@code -1} for an empty row.
      */
     @Override
     public short getFirstCellNum() {
-        return 0;
+        return (short) (cells.isEmpty() ? -1 : 0);
     }
 
     /**
-     * Returns the zero-based index of the last cell in this row.
-     *
-     * @return {@code cells.size() - 1}
+     * Returns the index of the last cell <strong>plus one</strong> (POI contract), or
+     * {@code -1} for an empty row.
      */
     @Override
     public short getLastCellNum() {
-        return (short) (cells.size() - 1);
+        return (short) (cells.isEmpty() ? -1 : cells.size());
     }
 
-    /** Not supported for CSV format. */
+    /**
+     * Returns the number of cells in this row (POI contract: the physical cell count). Every CSV
+     * token is materialised as a {@link CSVCell}, so this equals the column count.
+     */
     @Override
     public int getPhysicalNumberOfCells() {
-        return 0;
+        return cells.size();
     }
 
     /** Not supported for CSV format. */
@@ -220,10 +235,9 @@ public class CSVRow implements Row {
 
     }
 
-    /** Not supported for CSV format. */
     @Override
     public Iterator<Cell> cellIterator() {
-        return null;
+        return cells.iterator();
     }
 
     /**
@@ -236,9 +250,8 @@ public class CSVRow implements Row {
         return sheet;
     }
 
-    /** Not supported for CSV format. */
     @Override
     public Iterator<Cell> iterator() {
-        return null;
+        return cellIterator();
     }
 }

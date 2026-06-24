@@ -118,7 +118,7 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     /** Sentinel cached when a class has no matching getter, so negative lookups are not repeated. */
     private static final Function<Object, Object> NO_GETTER = o -> null;
 
-    private static int configuredDownloadThreads = -1;
+    private static volatile int configuredDownloadThreads = -1;
 
     /**
      * Configures the number of image download threads. Takes effect globally; call before creating an ExcelCreator.
@@ -208,6 +208,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private String[] header;
     /** Parent-header groups from @ExcelColumnParent (data-column space); null when none. */
     private List<ExcelAnnotationProperty.ParentHeader> parentHeaders;
+    /** Per-data-column ancestor header paths from @ExcelColumn#groups(); null/empty when none. */
+    private List<String[]> headerGroups;
+    /** Number of group header rows above the leaf row ({@code >= 1} enables the multi-level header). */
+    private int maxHeaderDepth;
     private String title;
     private String sheetName;
     private boolean isChildComplex = false;
@@ -364,8 +368,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 cell.setCellValue(value.toString());
             }
         } catch (Exception e) {
+            // Leave the cell blank rather than stamping a literal "ERROR" string into what may be
+            // a numeric column (which would silently turn one cell to text and break sums/sorts).
             logger.error("Error setting cell value: {}", value, e);
-            cell.setCellValue("ERROR");
+            cell.setBlank();
         }
     }
 
@@ -388,6 +394,15 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
 
     /** Cache of date cell styles keyed by format pattern (bounded by the few distinct patterns used). */
     private final Map<String, CellStyle> dateStyleCache = new HashMap<>();
+
+    /**
+     * Per-column max display width sampled while data is written, used only for big-data (SXSSF)
+     * auto-size: rows flushed out of the streaming window are no longer reachable via
+     * {@code sheet.getRow(r)}, so the post-hoc row sampling in {@link #applyAutoSizeColumns} would
+     * miss them. Populated lazily during {@link #populateData} only when both auto-size and
+     * big-data are on; empty (and ignored) otherwise, so the DOM path is unchanged.
+     */
+    private final Map<Integer, Integer> bigDataAutoSizeUnits = new HashMap<>();
 
     @Override
     public void setCellValue(Cell cell, Object value, String datePattern) {
@@ -424,7 +439,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
     private void writeTemporal(Cell cell, Object value, String pattern) {
         CellStyle style = dateStyleCache.computeIfAbsent(pattern, p -> {
             CellStyle s = book.createCellStyle();
-            s.cloneStyleFrom(styleManager.getCellStyle());
+            // styleManager is null for the lightweight ExcelCreator(Workbook) wrapper, which does
+            // no helper init; fall back to a bare style carrying just the date format instead of
+            // NPE-ing on cloneStyleFrom.
+            if (styleManager != null) {
+                s.cloneStyleFrom(styleManager.getCellStyle());
+            }
             s.setDataFormat(book.getCreationHelper().createDataFormat().getFormat(p));
             return s;
         });
@@ -541,6 +561,8 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         setTitle(prop.getTitle());
         setHeader(prop.getHeader());
         this.parentHeaders = prop.getParentHeaders();
+        this.headerGroups = prop.getHeaderGroups();
+        this.maxHeaderDepth = prop.getMaxHeaderDepth();
         setObject(prop.getExcelData());
         setColumnMergeInfo(prop.getMergeInfo());
         Map<Integer, ExcelModel> mapping = new HashMap<>();
@@ -701,11 +723,15 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         firstDataRowNum = rowNum;
         CellStyle dataCellStyle = styleManager.getCellStyle();
 
+        // Big-data rows get flushed out of the SXSSF window before applyAutoSizeColumns runs, so
+        // sample their widths here (bounded to the same row cap) while they are still in memory.
+        boolean trackBigDataWidths = autoSizeColumns && isBigData;
         for (int i = 0; i < data.size(); i++) {
             Object obj = data.get(i);
             row = sheet.getRow(rowNum + i);
             if (row == null) row = sheet.createRow(rowNum + i);
             row.setHeight(rowHeight != null ? rowHeight.shortValue() : (short) DEFAULT_ROW_HEIGHT);
+            boolean sampleThisRow = trackBigDataWidths && i < AUTOSIZE_SAMPLE_ROWS;
 
             int length = header.length;
             if (needOrderNum) length += 1 + (orderColumnSpan - 1);
@@ -750,6 +776,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                         setMergeColumn(rowNum + i, rowNum + i, j, j + excelModel.getMergeCellIndex() - 1);
                     }
                 }
+                if (sampleThisRow && cell != null) {
+                    bigDataAutoSizeUnits.merge(cell.getColumnIndex(), displayWidth(cellText(cell)), Integer::max);
+                }
             }
         }
         rowNum += data.size();
@@ -766,6 +795,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             ec.sheet = sheet;
             ec.rowNum = rowNum;
             ec.disposeOwnStreamingBook();
+            // Stitched into this workbook: it shares the parent's pool-bound resources and is
+            // never closed, so drop its instance count to keep the pool's shutdown reachable.
+            ec.uncount();
             ec.book = book;
             ec.child = null;
             ec.drawing = drawing;
@@ -846,6 +878,13 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 rowNum++;
                 dsize++;
             }
+        }
+
+        // Multi-level merged header from @ExcelColumn#groups(): writes all (maxHeaderDepth + 1)
+        // header rows and returns, bypassing the legacy single/parent header blocks below.
+        if (maxHeaderDepth > 0 && needHandle && header != null && header.length > 0) {
+            writeMultiLevelHeader(headerStyle);
+            return;
         }
 
         // Parent (grouped) header row from @ExcelColumnParent: rendered just above the column
@@ -943,6 +982,105 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             }
             rowNum++;
         }
+    }
+
+    private static final String[] EMPTY_GROUPS = new String[0];
+
+    /**
+     * Renders a multi-level merged header from {@code @ExcelColumn#groups()}: {@code maxHeaderDepth}
+     * group rows (top-most first) above the leaf column-name row. Ancestor labels sharing a common
+     * prefix merge horizontally at each level; a column with fewer groups than the deepest has its
+     * leaf merged vertically down to the bottom row. An order-number column (if any) spans the full
+     * header height on the left.
+     */
+    private void writeMultiLevelHeader(CellStyle headerStyle) {
+        // Fold @ExcelColumn(columnWidth) widths into the physical-keyed map (mirrors the legacy block).
+        annotationWidthInfo.forEach((dataIdx, width) ->
+                columnWidthMap.putIfAbsent(physicalColumn(dataIdx), width));
+
+        int orderOffset = needOrderNum ? orderColumnSpan : 0;
+        int dataCols = header.length;
+        int totalCols = dataCols + orderOffset;
+        int numRows = maxHeaderDepth + 1;
+        int firstRow = rowNum;
+        int leafRow = firstRow + maxHeaderDepth;
+
+        Row[] rows = new Row[numRows];
+        for (int r = 0; r < numRows; r++) {
+            rows[r] = sheet.createRow(firstRow + r);
+            rows[r].setHeight((short) headerRowHeight);
+            for (int c = 0; c < totalCols; c++) {
+                rows[r].createCell(c).setCellStyle(headerStyle);
+            }
+        }
+        for (int c = 0; c < totalCols; c++) {
+            Integer cw = columnWidthMap.get(c);
+            sheet.setColumnWidth(c, cw != null ? cw : DEFAULT_COLUMN_WIDTH * 255);
+        }
+
+        // Order column: one merged block spanning every header row on the left.
+        if (needOrderNum) {
+            rows[0].getCell(0).setCellValue("序号");
+            setMergeColumn(firstRow, leafRow, 0, orderColumnSpan - 1);
+        }
+
+        // Group rows, top (level 0) down to the row just above the leaves.
+        for (int level = 0; level < maxHeaderDepth; level++) {
+            int c = 0;
+            while (c < dataCols) {
+                String[] g = groupsAt(c);
+                if (g.length <= level) { c++; continue; } // leaf vertical-merges through this level
+                int e = c;
+                while (e + 1 < dataCols && sharesGroupPrefix(groupsAt(e + 1), g, level)) {
+                    e++;
+                }
+                int s = c + orderOffset, en = e + orderOffset;
+                rows[level].getCell(s).setCellValue(g[level]);
+                if (en > s) setMergeColumn(firstRow + level, firstRow + level, s, en);
+                c = e + 1;
+            }
+        }
+
+        // Leaf row: column names. Equal adjacent leaves under the same path (e.g. mergeCellIndex
+        // repeats) merge horizontally; a leaf shorter than the deepest path merges vertically down
+        // from just below its last group to the bottom row.
+        int c = 0;
+        while (c < dataCols) {
+            String name = header[c];
+            int k = groupsAt(c).length;
+            int e = c;
+            while (e + 1 < dataCols && name.equals(header[e + 1])
+                    && samePath(groupsAt(e + 1), groupsAt(c))) {
+                e++;
+            }
+            int s = c + orderOffset, en = e + orderOffset;
+            int topRow = firstRow + k;
+            rows[k].getCell(s).setCellValue(name);
+            if (en > s || topRow < leafRow) {
+                setMergeColumn(topRow, leafRow, s, en);
+            }
+            c = e + 1;
+        }
+        rowNum = leafRow + 1;
+    }
+
+    private String[] groupsAt(int dataCol) {
+        String[] g = (headerGroups != null && dataCol < headerGroups.size()) ? headerGroups.get(dataCol) : null;
+        return g != null ? g : EMPTY_GROUPS;
+    }
+
+    /** Whether two group paths are identical up to and including {@code level}. */
+    private static boolean sharesGroupPrefix(String[] a, String[] b, int level) {
+        if (a.length <= level) return false;
+        for (int i = 0; i <= level; i++) {
+            if (!java.util.Objects.equals(a[i], b[i])) return false;
+        }
+        return true;
+    }
+
+    /** Whether two group paths are identical. */
+    private static boolean samePath(String[] a, String[] b) {
+        return java.util.Arrays.equals(a, b);
     }
 
     private int getHeaderLength() {
@@ -1051,6 +1189,9 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
             // The child is stitched into this workbook; its own (now unused) workbook would
             // otherwise leak SXSSF temp files in big-data mode.
             ec.disposeOwnStreamingBook();
+            // Stitched into this workbook: it shares the parent's pool-bound resources and is
+            // never closed, so drop its instance count to keep the pool's shutdown reachable.
+            ec.uncount();
             ec.book = book;
             ec.sheet = ec.sheetName != null && ec.sheetName.length() > 0
                     ? ec.book.createSheet(ec.sheetName) : ec.book.createSheet();
@@ -1272,7 +1413,12 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
      *
      * @param s the custom {@link CellStyle} to apply to data cells
      */
-    public void setCellStyle(CellStyle s) { if (styleManager != null) styleManager.setCellStyle(s); }
+    public void setCellStyle(CellStyle s) {
+        if (styleManager != null) styleManager.setCellStyle(s);
+        // Date cell styles are cloned from the data style per format pattern; drop the cache so
+        // they are rebuilt from the new custom style instead of the stale default.
+        dateStyleCache.clear();
+    }
 
     /**
      * Replaces the default header row cell style with a custom one.
@@ -1670,6 +1816,10 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
                 int units = displayWidth(cellText(sampleCell));
                 if (units > maxUnits) maxUnits = units;
             }
+            // Fold in widths sampled during population for rows the SXSSF window has since flushed
+            // (empty for the DOM path, so non-big-data results are unchanged).
+            int tracked = bigDataAutoSizeUnits.getOrDefault(c, 0);
+            if (tracked > maxUnits) maxUnits = tracked;
             if (maxUnits == 0) continue;
             int width = Math.min(AUTOSIZE_MAX_WIDTH, Math.max(AUTOSIZE_MIN_WIDTH, (maxUnits + 2) * 256));
             sheet.setColumnWidth(c, width);
@@ -1869,22 +2019,51 @@ public class ExcelCreator implements CellValueSetter, ValueExtractor, Closeable 
         // down underneath other active exports.
         if (countedInstance) {
             countedInstance = false;
+            ThreadPoolExecutor toShutdown = null;
             if (INSTANCE_COUNT.decrementAndGet() <= 0) {
                 synchronized (ExcelCreator.class) {
-                    if (executor != null && !executor.isShutdown()) {
-                        executor.shutdown();
-                        try {
-                            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) executor.shutdownNow();
-                        } catch (InterruptedException ie) {
-                            executor.shutdownNow();
-                            Thread.currentThread().interrupt();
-                        }
+                    // Re-check the count UNDER the lock: a concurrent export increments the count
+                    // before it acquires the pool (initHelpers), so if the count is still <= 0
+                    // here, nobody is about to use the current pool and it is safe to retire it.
+                    // Without this re-check, a sibling export that started between our decrement and
+                    // this point could have its pool shut down underneath it (RejectedExecutionException).
+                    if (INSTANCE_COUNT.get() <= 0 && executor != null && !executor.isShutdown()) {
+                        toShutdown = executor;
+                        // Null it out under the lock so a concurrent new export creates a fresh pool
+                        // immediately rather than reusing the one we are about to stop.
                         executor = null;
                     }
                 }
             }
+            // Drain OUTSIDE the lock: awaitTermination can block up to 30s and getOrCreateExecutor
+            // also synchronizes on ExcelCreator.class, so holding the lock here would stall every
+            // concurrent export that wants to start during the drain.
+            if (toShutdown != null) {
+                toShutdown.shutdown();
+                try {
+                    if (!toShutdown.awaitTermination(30, TimeUnit.SECONDS)) toShutdown.shutdownNow();
+                } catch (InterruptedException ie) {
+                    toShutdown.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
         logger.debug("ExcelCreator resources closed");
+    }
+
+    /**
+     * Drops this creator's {@link #INSTANCE_COUNT} share without touching the shared download
+     * pool. Called when a child creator is stitched into a parent workbook: it then shares the
+     * parent's pool-bound resources and is never {@code close()}d, so leaving it counted would
+     * keep {@code INSTANCE_COUNT} permanently above zero and defeat the pool's graceful shutdown
+     * when the parent closes. Idempotent and safe if the child is later {@code close()}d (the
+     * {@code countedInstance} guard skips the second decrement).
+     */
+    private void uncount() {
+        if (countedInstance) {
+            countedInstance = false;
+            INSTANCE_COUNT.decrementAndGet();
+        }
     }
 
     /**

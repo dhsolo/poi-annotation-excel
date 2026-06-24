@@ -39,6 +39,26 @@ public @interface ExcelColumn {
 	String[] translate() default {};
 
 	/**
+	 * Ancestor header labels for a multi-level (3+ row) merged header, ordered top-most first;
+	 * this column's {@link #columnName()} is the bottom (leaf) header. Adjacent columns that share
+	 * the same ancestor prefix are merged horizontally at each level, and a column with fewer
+	 * levels than the deepest one has its leaf merged vertically down to the bottom row.
+	 *
+	 * <p>Example — a two-level group above the leaf produces a three-row header:
+	 * <pre>{@code
+	 * @ExcelColumn(columnName = "Q1", index = 2, groups = {"2024年", "上半年"})
+	 * @ExcelColumn(columnName = "Q2", index = 3, groups = {"2024年", "上半年"})
+	 * @ExcelColumn(columnName = "Q3", index = 4, groups = {"2024年", "下半年"})
+	 * }</pre>
+	 * renders {@code 2024年} spanning Q1–Q3 on the top row, {@code 上半年}/{@code 下半年} on the
+	 * middle row, and {@code Q1/Q2/Q3} on the bottom row. Arbitrary depth is supported.
+	 *
+	 * <p>Mutually exclusive with {@link ExcelColumnParent} (the legacy two-row mechanism) on the
+	 * same model; mixing the two throws at processing time. Export-only, like {@code @ExcelColumnParent}.
+	 */
+	String[] groups() default {};
+
+	/**
 	 * Dot-separated path: reads a value from the row data object by path, replacing nested-object {@code @ExcelTranslateMethod}.
 	 * <p>For example, {@code "pointInfo.measureType"} is equivalent to {@code data.getPointInfo().getMeasureType()}.
 	 * <p>Can be combined with {@link #translate()}; if {@code @ExcelTranslateMethod} also exists, method translation takes precedence.

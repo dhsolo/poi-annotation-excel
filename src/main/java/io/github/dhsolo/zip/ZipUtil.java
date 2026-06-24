@@ -140,7 +140,13 @@ public class ZipUtil {
             throw e;
         }
 
-        Files.move(rebuilt, zipPath, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            Files.move(rebuilt, zipPath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            // Don't leave the half-built archive behind if the in-place swap fails.
+            Files.deleteIfExists(rebuilt);
+            throw e;
+        }
         logger.debug("inject {} files into zip success (stored, raw-copied): {}", files.length, zipPath);
     }
 

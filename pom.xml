@@ -5,7 +5,7 @@
 
     <groupId>io.github.dhsolo</groupId>
     <artifactId>poi-annotation-excel</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>poi-annotation-excel</name>
@@ -39,7 +39,7 @@
 
     <properties>
         <java.version>17</java.version>
-        <poi.version>5.2.5</poi.version>
+        <poi.version>5.5.1</poi.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
@@ -63,9 +63,9 @@
         </dependency>
 
         <dependency>
-            <groupId>com.googlecode.juniversalchardet</groupId>
+            <groupId>com.github.albfernandez</groupId>
             <artifactId>juniversalchardet</artifactId>
-            <version>1.0.3</version>
+            <version>2.5.0</version>
         </dependency>
 
         <dependency>
@@ -85,6 +85,14 @@
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
             <version>3.25.3</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Route POI's internal log4j-api logging into slf4j during tests
+             (silences the bogus "Log4j2 could not find a logging implementation" ERROR) -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>2.26.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>

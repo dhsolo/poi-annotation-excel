@@ -15,6 +15,9 @@
  */
 package io.github.dhsolo.common;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,6 +39,8 @@ import java.util.function.Consumer;
  * @since 1.0
  */
 public final class Reflect {
+
+    private static final Logger log = LoggerFactory.getLogger(Reflect.class);
 
     private Reflect() {}
 
@@ -179,9 +184,26 @@ public final class Reflect {
             T obj = clazz.getDeclaredConstructor().newInstance();
             for (java.util.Map.Entry<String, Object> entry : map.entrySet()) {
                 Field f = findField(clazz, entry.getKey());
-                if (f != null && entry.getValue() != null) {
-                    f.set(obj, entry.getValue());
+                if (f == null || entry.getValue() == null) continue;
+                Object value = entry.getValue();
+                // Imported cell values are mostly Strings; convert to the field's type via the
+                // same table the column import uses. Unconvertible values skip the field
+                // instead of blowing up the whole mapping — with a WARN trail, so a skipped
+                // field is distinguishable from a genuinely empty cell.
+                if (!f.getType().isInstance(value)) {
+                    try {
+                        value = CommonUtil.convert(value, f.getType());
+                        if (value == null && !entry.getValue().toString().isBlank()) {
+                            log.warn("mapToBean: value '{}' is not convertible to {} — field '{}' skipped",
+                                    entry.getValue(), f.getType().getName(), f.getName());
+                        }
+                    } catch (RuntimeException conversionFailed) {
+                        log.warn("mapToBean: value '{}' rejected while converting to {} — field '{}' skipped",
+                                entry.getValue(), f.getType().getName(), f.getName(), conversionFailed);
+                        value = null;
+                    }
                 }
+                if (value != null) f.set(obj, value);
             }
             return obj;
         } catch (Exception e) {
